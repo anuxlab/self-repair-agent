@@ -17,7 +17,8 @@
         0,
         1
       ],
-      "unordered_list": true
+      "unordered_list": true,
+      "category": "basic_pair"
     },
     {
       "args": [
@@ -32,7 +33,8 @@
         1,
         2
       ],
-      "unordered_list": true
+      "unordered_list": true,
+      "category": "pair_not_at_start"
     },
     {
       "args": [
@@ -46,7 +48,8 @@
         0,
         1
       ],
-      "unordered_list": true
+      "unordered_list": true,
+      "category": "duplicate_values"
     },
     {
       "args": [
@@ -62,7 +65,8 @@
         0,
         2
       ],
-      "unordered_list": true
+      "unordered_list": true,
+      "category": "negative_values"
     },
     {
       "args": [
@@ -78,7 +82,17 @@
         0,
         3
       ],
-      "unordered_list": true
+      "unordered_list": true,
+      "category": "duplicate_zero_values"
     }
-  ]
+  ],
+  "bug_family": "hashing_and_indexing",
+  "bug_patterns": [
+    "incorrect complement lookup",
+    "duplicate handling",
+    "indexing mistakes",
+    "negative-value handling",
+    "quadratic or inefficient approach (not performance-tested)"
+  ],
+  "difficulty_rubric": "Algorithmic pattern plus indexing/duplicate handling"
 }

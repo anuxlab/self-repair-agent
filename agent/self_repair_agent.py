@@ -28,8 +28,9 @@ llm = ChatOpenAI(
     base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1"),
     api_key="ollama",  # required by OpenAI-compatible client; local Ollama ignores it
     temperature=0.2,
-    timeout=int(os.getenv("LLM_TIMEOUT_SECONDS", "300")),
-    max_retries=1,
+    timeout=int(os.getenv("LLM_TIMEOUT_SECONDS", "240")),
+    max_retries=0,
+    max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
 )
 
 SYSTEM_PROMPT = """You are an expert Python programmer working in a test-driven code-repair benchmark.
@@ -41,6 +42,8 @@ def extract_code(content: Any) -> str:
     if isinstance(content, list):
         content = "\n".join(str(x.get("text", x)) if isinstance(x, dict) else str(x) for x in content)
     text = str(content).strip()
+    # Qwen3 may emit its thinking trace in tagged form on some Ollama endpoints.
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S | re.I).strip()
     match = re.search(r"```(?:python|py)?\s*\n(.*?)```", text, re.S | re.I)
     if match:
         return match.group(1).strip() + "\n"
@@ -113,15 +116,26 @@ def solve(spec_path: Path) -> dict:
             last_test = {"passed": False, "passed_tests": 0, "total_tests": len(spec["tests"]), "failures": [syntax_error], "exit_code": None, "timed_out": False, "stdout": "", "stderr": ""}
         else:
             last_test = run_tests(solution_path, spec_path)
+        failure_class = ("syntax_error" if syntax_error else last_test.get("failure_class", "unknown"))
+        category_results = last_test.get("category_results", {})
+        failed_categories = [name for name, stats in category_results.items() if stats.get("passed", 0) < stats.get("total", 0)]
         entry = {"round": round_no, "llm_seconds": round(llm_seconds, 4), "token_usage": token_usage or None,
-                 "syntax_error": syntax_error, "passed": bool(last_test.get("passed")),
+                 "syntax_error": syntax_error, "failure_class": failure_class,
+                 "failed_bug_categories": failed_categories, "category_results": category_results,
+                 "passed": bool(last_test.get("passed")),
                  "passed_tests": last_test.get("passed_tests", 0), "total_tests": last_test.get("total_tests", len(spec["tests"])),
                  "test_report": last_test, "code_snapshot": code}
         history.append(entry)
         if last_test.get("passed"):
             break
     converged = bool(last_test.get("passed"))
-    return {"problem": spec_path.name, "function": spec["name"], "difficulty": spec["difficulty"], "model": MODEL,
+    final_categories = last_test.get("category_results", {})
+    failed_categories = [name for name, stats in final_categories.items() if stats.get("passed", 0) < stats.get("total", 0)]
+    return {"problem": spec_path.name, "function": spec["name"], "difficulty": spec["difficulty"],
+            "bug_family": spec.get("bug_family", "unspecified"), "bug_patterns": spec.get("bug_patterns", []),
+            "difficulty_rubric": spec.get("difficulty_rubric", ""), "model": MODEL,
+            "failure_class": ("none" if converged else ("syntax_error" if last_test.get("syntax_error") else last_test.get("failure_class", "not_converged"))),
+            "failed_bug_categories": failed_categories, "category_results": final_categories,
             "rounds": len(history), "rounds_to_converge": len(history) if converged else None,
             "converged": converged, "passed_tests": last_test.get("passed_tests", 0),
             "total_tests": last_test.get("total_tests", len(spec["tests"])),
@@ -137,7 +151,8 @@ def main() -> int:
         log.error("No JSON problem specs found in %s", PROBLEM_DIR)
         return 2
     results = [solve(path) for path in specs]
-    report = {"schema_version": 2, "model": MODEL, "max_repair_rounds": MAX_ROUNDS,
+    report = {"schema_version": 3, "model": MODEL, "max_repair_rounds": MAX_ROUNDS,
+              "evaluation_note": "Observed performance on this fixed, small test set; not a general claim about model capability.",
               "problem_count": len(results), "solved_count": sum(r["converged"] for r in results),
               "pass_rate": round(sum(r["converged"] for r in results) / len(results), 4), "results": results}
     LOG_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")

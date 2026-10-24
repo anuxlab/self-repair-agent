@@ -7,37 +7,51 @@
       "args": [
         "A man, a plan, a canal: Panama"
       ],
-      "expected": true
+      "expected": true,
+      "category": "case_and_punctuation_normalization"
     },
     {
       "args": [
         "race a car"
       ],
-      "expected": false
+      "expected": false,
+      "category": "ordinary_negative_case"
     },
     {
       "args": [
         ""
       ],
-      "expected": true
+      "expected": true,
+      "category": "empty_input_boundary"
     },
     {
       "args": [
         ".,!?"
       ],
-      "expected": true
+      "expected": true,
+      "category": "punctuation_only_boundary"
     },
     {
       "args": [
         "No lemon, no melon"
       ],
-      "expected": true
+      "expected": true,
+      "category": "normalization_variant"
     },
     {
       "args": [
         "ab"
       ],
-      "expected": false
+      "expected": false,
+      "category": "short_input_boundary"
     }
-  ]
+  ],
+  "bug_family": "string_normalization",
+  "bug_patterns": [
+    "case sensitivity",
+    "punctuation handling",
+    "empty input",
+    "incorrect string normalization"
+  ],
+  "difficulty_rubric": "Normalization rules and edge cases"
 }

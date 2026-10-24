@@ -1,0 +1,216 @@
+name: Qwen Repository Coding Agent (PR-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Specific repository change for the local model (max 5000 characters)"
+        required: true
+        type: string
+      issue_number:
+        description: "Existing GitHub issue to fix (optional; closes automatically when the PR is merged)"
+        required: false
+        type: string
+      model:
+        description: "Ollama model tag"
+        required: true
+        default: "qwen3:4b"
+        type: choice
+        options:
+          - "qwen3:0.6b"
+          - "qwen3:1.7b"
+          - "qwen3:4b"
+
+# No repository write permissions in the model-generation or test job.
+permissions:
+  contents: read
+
+jobs:
+  propose-and-test:
+    name: Generate patch and test without write credentials
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CODING_TASK: ${{ inputs.task }}
+      TARGET_ISSUE_NUMBER: ${{ inputs.issue_number }}
+      QWEN_MODEL: ${{ inputs.model }}
+      OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
+      LLM_TIMEOUT_SECONDS: "300"
+      LLM_MAX_TOKENS: "4096"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+      - name: Install Ollama prerequisites
+        run: sudo apt-get update && sudo apt-get install -y zstd
+      - name: Setup Ollama
+        uses: ai-action/setup-ollama@v2
+      - name: Start Ollama and pull model
+        run: |
+          (ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &)
+          for i in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+            sleep 2
+          done
+          curl --silent --show-error --fail http://127.0.0.1:11434/api/tags >/dev/null || { cat "$RUNNER_TEMP/ollama.log"; exit 1; }
+          ollama pull "$QWEN_MODEL"
+          ollama list
+      - name: Generate proposed repository patch
+        run: python agent/repo_coding_agent.py
+      - name: Validate and apply patch in isolated job
+        id: patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          PATCH=artifacts/repo-agent/proposed.patch
+          test -f "$PATCH"
+          if [ ! -s "$PATCH" ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; echo "No patch proposed."; exit 0; fi
+          git apply --check "$PATCH"
+          git apply "$PATCH"
+          git diff --check
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "Proposed changed files:"
+          git diff --name-only
+          # Do not allow edits to workflow files, dependency manifests, or unrelated paths.
+          python - <<'PY'
+          import subprocess, sys
+          changed = subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines()
+          allowed = ("agent/", "problems/", "tests/", "scripts/")
+          exact = {"README.md"}
+          bad = [p for p in changed if not (p in exact or p.startswith(allowed))]
+          if bad:
+              print("Disallowed changed paths:", *bad, sep="\n", file=sys.stderr)
+              raise SystemExit(1)
+          PY
+      - name: Run unit tests and syntax checks
+        if: steps.patch.outputs.changed == 'true'
+        run: |
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          python -m compileall -q agent scripts tests problems
+      - name: Upload patch and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwen-repository-agent-${{ github.run_id }}
+          path: artifacts/repo-agent/
+          if-no-files-found: error
+          retention-days: 14
+
+  open-pull-request:
+    name: Open pull request for passing patch
+    needs: propose-and-test
+    if: needs.propose-and-test.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: qwen-repository-agent-${{ github.run_id }}
+          path: downloaded-agent-artifact
+      - name: Check patch exists
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          PATCH=downloaded-agent-artifact/proposed.patch
+          test -f "$PATCH"
+          if [ ! -s "$PATCH" ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - name: Apply validated patch and create branch
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_CLASSIC_TOKEN != '' && secrets.GH_CLASSIC_TOKEN || github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check downloaded-agent-artifact/proposed.patch
+          git apply downloaded-agent-artifact/proposed.patch
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          gh auth setup-git
+          BRANCH="qwen-agent/${GITHUB_RUN_ID}"
+          git checkout -b "$BRANCH"
+          git add agent problems tests scripts README.md
+          if git diff --cached --quiet; then echo "No staged changes"; exit 0; fi
+          git commit -m "Qwen coding agent: propose repository repair"
+          git push origin "$BRANCH"
+          BODY="Automated proposal generated by the local open-source model in GitHub Actions. The patch was generated and tested in a separate job without write credentials. Please review the diff carefully before merging. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+          if [[ "${{ inputs.issue_number }}" =~ ^[1-9][0-9]*$ ]]; then
+            BODY+=$'\n\nFixes #${{ inputs.issue_number }}'
+          fi
+          gh pr create \
+            --base "${GITHUB_REF_NAME}" \
+            --head "$BRANCH" \
+            --title "Qwen coding agent: proposed repository repair" \
+            --body "$BODY"
+
+
+  report-workflow-failure:
+    name: Report workflow failure as a GitHub Issue
+    needs: [propose-and-test]
+    if: always() && needs.propose-and-test.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      actions: read
+      contents: read
+    steps:
+      - name: Create or update a deduplicated failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          TASK: ${{ inputs.task }}
+          MODEL: ${{ inputs.model }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TITLE="Automated coding-agent workflow failure: ${WORKFLOW_NAME}"
+          BODY=$(cat <<EOF
+          ## Automated workflow failure
+
+          The repository coding-agent workflow failed before producing a validated pull request.
+
+          - **Workflow:** ${WORKFLOW_NAME}
+          - **Run:** ${RUN_URL}
+          - **Run ID / attempt:** ${RUN_ID} / ${RUN_ATTEMPT}
+          - **Branch:** ${BRANCH_NAME}
+          - **Model:** ${MODEL}
+
+          ### Requested task
+          ${TASK}
+
+          ### Next steps
+          1. Open the run link and identify the first failing step.
+          2. Check Ollama installation/model pull, model invocation, patch validation, and tests.
+          3. Re-run after the underlying cause is fixed.
+
+          This issue was created automatically. Do not place credentials or secrets in comments.
+          EOF
+          )
+          gh label create automation --repo "$GH_REPO" --color 5319e7 --description "Created or updated by coding-agent automation" 2>/dev/null || true
+          gh label create bug --repo "$GH_REPO" --color d73a4a --description "Bug or workflow failure" 2>/dev/null || true
+          EXISTING=$(gh issue list --repo "$GH_REPO" --state open --search '"Automated coding-agent workflow failure" in:title' --json number,title --jq '.[] | select(.title == "'"$TITLE"'") | .number' | head -n1 || true)
+          if [[ -n "$EXISTING" ]]; then
+            gh issue comment "$EXISTING" --repo "$GH_REPO" --body "$BODY"
+            echo "Updated existing failure issue #$EXISTING"
+          else
+            gh issue create --repo "$GH_REPO" --title "$TITLE" --body "$BODY" --label "automation,bug"
+          fi

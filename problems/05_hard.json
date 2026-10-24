@@ -20,7 +20,8 @@
           1
         ]
       ],
-      "expected": 6
+      "expected": 6,
+      "category": "canonical_example"
     },
     {
       "args": [
@@ -33,13 +34,15 @@
           5
         ]
       ],
-      "expected": 9
+      "expected": 9,
+      "category": "uneven_basins"
     },
     {
       "args": [
         []
       ],
-      "expected": 0
+      "expected": 0,
+      "category": "empty_input_boundary"
     },
     {
       "args": [
@@ -47,7 +50,8 @@
           1
         ]
       ],
-      "expected": 0
+      "expected": 0,
+      "category": "single_element_boundary"
     },
     {
       "args": [
@@ -57,7 +61,8 @@
           3
         ]
       ],
-      "expected": 0
+      "expected": 0,
+      "category": "flat_profile"
     },
     {
       "args": [
@@ -68,7 +73,8 @@
           2
         ]
       ],
-      "expected": 1
+      "expected": 1,
+      "category": "right_boundary_basin"
     },
     {
       "args": [
@@ -78,7 +84,8 @@
           2
         ]
       ],
-      "expected": 2
+      "expected": 2,
+      "category": "single_basin"
     },
     {
       "args": [
@@ -89,7 +96,17 @@
           2
         ]
       ],
-      "expected": 2
+      "expected": 2,
+      "category": "multiple_basins"
     }
-  ]
+  ],
+  "bug_family": "two_pointer_invariant_and_boundaries",
+  "bug_patterns": [
+    "two-pointer invariant error",
+    "incorrect water accumulation",
+    "boundary handling",
+    "empty/short input bug",
+    "overcounting or undercounting"
+  ],
+  "difficulty_rubric": "Multi-step invariant reasoning and adversarial boundaries"
 }

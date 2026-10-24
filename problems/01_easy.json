@@ -8,35 +8,47 @@
         2,
         3
       ],
-      "expected": 5
+      "expected": 5,
+      "category": "basic_positive"
     },
     {
       "args": [
         -1,
         1
       ],
-      "expected": 0
+      "expected": 0,
+      "category": "negative_values"
     },
     {
       "args": [
         0,
         0
       ],
-      "expected": 0
+      "expected": 0,
+      "category": "zero_boundary"
     },
     {
       "args": [
         -7,
         -8
       ],
-      "expected": -15
+      "expected": -15,
+      "category": "negative_values"
     },
     {
       "args": [
         1.5,
         2.25
       ],
-      "expected": 3.75
+      "expected": 3.75,
+      "category": "numeric_type_handling"
     }
-  ]
+  ],
+  "bug_family": "correctness_basics",
+  "bug_patterns": [
+    "basic implementation errors",
+    "wrong operator or return value",
+    "numeric type mishandling"
+  ],
+  "difficulty_rubric": "Basic correctness and straightforward input handling"
 }

@@ -17,7 +17,8 @@
           4
         ]
       ],
-      "expected": 6
+      "expected": 6,
+      "category": "mixed_positive_negative"
     },
     {
       "args": [
@@ -25,7 +26,8 @@
           1
         ]
       ],
-      "expected": 1
+      "expected": 1,
+      "category": "single_element_boundary"
     },
     {
       "args": [
@@ -35,7 +37,8 @@
           -2
         ]
       ],
-      "expected": -1
+      "expected": -1,
+      "category": "all_negative_boundary"
     },
     {
       "args": [
@@ -47,7 +50,8 @@
           8
         ]
       ],
-      "expected": 23
+      "expected": 23,
+      "category": "all_positive_run"
     },
     {
       "args": [
@@ -57,7 +61,8 @@
           0
         ]
       ],
-      "expected": 0
+      "expected": 0,
+      "category": "all_zero_boundary"
     },
     {
       "args": [
@@ -66,7 +71,16 @@
           -1
         ]
       ],
-      "expected": -1
+      "expected": -1,
+      "category": "all_negative_boundary"
     }
-  ]
+  ],
+  "bug_family": "dynamic_programming_and_boundaries",
+  "bug_patterns": [
+    "incorrect recurrence",
+    "all-negative initialization bug",
+    "empty/non-empty assumption error",
+    "off-by-one boundary error"
+  ],
+  "difficulty_rubric": "State invariant and tricky negative/boundary cases"
 }
