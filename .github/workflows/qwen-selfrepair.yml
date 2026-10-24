@@ -1,5 +1,5 @@
 # .github/workflows/qwen-selfrepair.yml
-name: Qwen Self-Repair Agent
+name: Qwen Self-Repair Agent (Local Ollama)
 
 on:
   workflow_dispatch:
@@ -22,15 +22,21 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install langchain langchain-openai langchain-community
+          pip install "langchain>=1.0" langchain-openai langchain-community
 
-      - name: Run Qwen self-repair agent
+      - name: Start Ollama and pull Qwen3 model
+        uses: pydantic/ollama-action@v3
+        with:
+          model: qwen3:4b          # change to qwen3:8b if you want a larger model
+
+      - name: Run Qwen self-repair agent (local)
         env:
-          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
-          QWEN_API_BASE: ${{ secrets.QWEN_API_BASE }}   # e.g. https://dashscope.aliyuncs.com/compatible-mode/v1
+          OLLAMA_BASE_URL: "http://localhost:11434/v1"
+          OLLAMA_API_KEY: "ollama"   # placeholder; Ollama does not validate it
+          QWEN_MODEL: "qwen3:4b"
           PYTHONUNBUFFERED: "1"
         run: |
           python agent/self_repair_agent.py
