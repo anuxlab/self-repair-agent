@@ -1,0 +1,84 @@
+{
+  "name": "num_islands",
+  "difficulty": "medium",
+  "statement": "Implement num_islands(grid), where grid is a list of strings containing '1' for land and '0' for water. Count four-directionally connected islands. The input may be empty. Do not count diagonal adjacency.",
+  "tests": [
+    {
+      "args": [
+        [
+          "11110",
+          "11010",
+          "11000",
+          "00000"
+        ]
+      ],
+      "expected": 1,
+      "category": "single_component"
+    },
+    {
+      "args": [
+        [
+          "11000",
+          "11000",
+          "00100",
+          "00011"
+        ]
+      ],
+      "expected": 3,
+      "category": "multiple_components"
+    },
+    {
+      "args": [
+        []
+      ],
+      "expected": 0,
+      "category": "empty_grid"
+    },
+    {
+      "args": [
+        [
+          "000",
+          "000"
+        ]
+      ],
+      "expected": 0,
+      "category": "all_water"
+    },
+    {
+      "args": [
+        [
+          "1"
+        ]
+      ],
+      "expected": 1,
+      "category": "single_cell"
+    },
+    {
+      "args": [
+        [
+          "10",
+          "01"
+        ]
+      ],
+      "expected": 2,
+      "category": "diagonal_not_connected"
+    },
+    {
+      "args": [
+        [
+          "10101"
+        ]
+      ],
+      "expected": 3,
+      "category": "single_row_components"
+    }
+  ],
+  "bug_family": "graph_traversal_grid",
+  "bug_patterns": [
+    "visited-state bugs",
+    "diagonal adjacency mistakenly included",
+    "component counting",
+    "empty grid"
+  ],
+  "difficulty_rubric": "Medium: DFS/BFS traversal and component bookkeeping"
+}

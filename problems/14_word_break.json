@@ -1,0 +1,97 @@
+{
+  "name": "word_break",
+  "difficulty": "medium-hard",
+  "statement": "Implement word_break(s, word_dict), returning True if s can be segmented into one or more dictionary words concatenated together, otherwise False. Dictionary words may be reused. Empty string returns True.",
+  "tests": [
+    {
+      "args": [
+        "leetcode",
+        [
+          "leet",
+          "code"
+        ]
+      ],
+      "expected": true,
+      "category": "canonical_dp"
+    },
+    {
+      "args": [
+        "applepenapple",
+        [
+          "apple",
+          "pen"
+        ]
+      ],
+      "expected": true,
+      "category": "word_reuse"
+    },
+    {
+      "args": [
+        "catsandog",
+        [
+          "cats",
+          "dog",
+          "sand",
+          "and",
+          "cat"
+        ]
+      ],
+      "expected": false,
+      "category": "near_miss"
+    },
+    {
+      "args": [
+        "",
+        [
+          "a"
+        ]
+      ],
+      "expected": true,
+      "category": "empty_string"
+    },
+    {
+      "args": [
+        "aaaaaaa",
+        [
+          "aaaa",
+          "aaa"
+        ]
+      ],
+      "expected": true,
+      "category": "overlapping_prefixes"
+    },
+    {
+      "args": [
+        "cars",
+        [
+          "car",
+          "ca",
+          "rs"
+        ]
+      ],
+      "expected": true,
+      "category": "alternate_segmentation"
+    },
+    {
+      "args": [
+        "abcd",
+        [
+          "a",
+          "abc",
+          "b",
+          "cd"
+        ]
+      ],
+      "expected": true,
+      "category": "prefix_choices"
+    }
+  ],
+  "bug_family": "dynamic_programming_string_segmentation",
+  "bug_patterns": [
+    "prefix DP transition",
+    "dictionary membership mistakes",
+    "greedy segmentation",
+    "empty-string base case"
+  ],
+  "difficulty_rubric": "Medium-hard: overlapping choices and DP state"
+}

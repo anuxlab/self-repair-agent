@@ -1,0 +1,91 @@
+{
+  "name": "length_of_lis",
+  "difficulty": "medium-hard",
+  "statement": "Implement length_of_lis(nums), returning the length of the longest strictly increasing subsequence (not necessarily contiguous). Empty input returns 0. Aim for O(n log n) or O(n^2) time.",
+  "tests": [
+    {
+      "args": [
+        [
+          10,
+          9,
+          2,
+          5,
+          3,
+          7,
+          101,
+          18
+        ]
+      ],
+      "expected": 4,
+      "category": "canonical_dp"
+    },
+    {
+      "args": [
+        []
+      ],
+      "expected": 0,
+      "category": "empty_boundary"
+    },
+    {
+      "args": [
+        [
+          7,
+          7,
+          7,
+          7
+        ]
+      ],
+      "expected": 1,
+      "category": "strict_not_nondecreasing"
+    },
+    {
+      "args": [
+        [
+          0,
+          1,
+          0,
+          3,
+          2,
+          3
+        ]
+      ],
+      "expected": 4,
+      "category": "duplicate_values"
+    },
+    {
+      "args": [
+        [
+          4,
+          10,
+          4,
+          3,
+          8,
+          9
+        ]
+      ],
+      "expected": 3,
+      "category": "non_contiguous_subsequence"
+    },
+    {
+      "args": [
+        [
+          -2,
+          -1,
+          -3,
+          0,
+          2
+        ]
+      ],
+      "expected": 4,
+      "category": "negative_values"
+    }
+  ],
+  "bug_family": "dynamic_programming_and_binary_search",
+  "bug_patterns": [
+    "confusing subsequence with subarray",
+    "strict vs nondecreasing condition",
+    "tails replacement invariant",
+    "empty input"
+  ],
+  "difficulty_rubric": "Medium-hard: sequence state and strict ordering"
+}

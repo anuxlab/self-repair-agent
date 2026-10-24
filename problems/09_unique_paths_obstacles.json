@@ -1,0 +1,107 @@
+{
+  "name": "unique_paths_with_obstacles",
+  "difficulty": "medium",
+  "statement": "Implement unique_paths_with_obstacles(grid), where grid is a rectangular list of lists containing 0 for open cells and 1 for blocked cells. Move only right or down from the top-left to bottom-right. Return the number of paths; return 0 if start or destination is blocked.",
+  "tests": [
+    {
+      "args": [
+        [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ]
+        ]
+      ],
+      "expected": 2,
+      "category": "canonical_dp"
+    },
+    {
+      "args": [
+        [
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            0
+          ]
+        ]
+      ],
+      "expected": 1,
+      "category": "blocked_cell"
+    },
+    {
+      "args": [
+        [
+          [
+            1,
+            0
+          ]
+        ]
+      ],
+      "expected": 0,
+      "category": "blocked_start"
+    },
+    {
+      "args": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ]
+      ],
+      "expected": 0,
+      "category": "blocked_destination"
+    },
+    {
+      "args": [
+        [
+          [
+            0
+          ]
+        ]
+      ],
+      "expected": 1,
+      "category": "single_cell"
+    },
+    {
+      "args": [
+        [
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ]
+      ],
+      "expected": 1,
+      "category": "single_row"
+    }
+  ],
+  "bug_family": "grid_dynamic_programming",
+  "bug_patterns": [
+    "blocked-cell transition",
+    "start initialization",
+    "destination handling",
+    "single-row/column boundary"
+  ],
+  "difficulty_rubric": "Medium: grid DP with obstacle boundaries"
+}

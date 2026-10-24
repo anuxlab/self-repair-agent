@@ -9,7 +9,12 @@ on:
         type: boolean
         default: false
       run_extended_coders:
-        description: "Also test DeepCoder, OpenCoder, Yi-Coder, and DeepSeek-Coder small coding models"
+        description: "Also test experimental models: smaller/slow prior runs, DeepCoder, Granite Code 3B, Qwen2.5-Coder 7B, DeepSeek-Coder 6.7B, StarCoder2 3B"
+        required: false
+        type: boolean
+        default: false
+      publish_solutions:
+        description: "Open a PR with generated code snapshots and run reports for manual review"
         required: false
         type: boolean
         default: false
@@ -47,18 +52,24 @@ jobs:
           # Keep the default run compact. The extended suite is opt-in because
           # each matrix entry consumes a separate hosted-runner job and download.
           models = [
-              {"model": "qwen3:0.6b", "artifact": "qwen3-0.6b", "timeout": "150"},
-              {"model": "qwen3:1.7b", "artifact": "qwen3-1.7b", "timeout": "150"},
-              {"model": "qwen2.5-coder:0.5b", "artifact": "qwen2-5-coder-0.5b", "timeout": "150"},
-              {"model": "qwen2.5-coder:1.5b", "artifact": "qwen2-5-coder-1.5b", "timeout": "150"},
+              # These five models completed all five tasks / 30 tests in the latest
+              # uploaded baseline. New graph/DP tasks will establish a fresh baseline.
+              {"model": "qwen2.5-coder:1.5b", "artifact": "qwen2-5-coder-1-5b", "timeout": "180"},
               {"model": "qwen2.5-coder:3b", "artifact": "qwen2-5-coder-3b", "timeout": "210"},
+              {"model": "deepseek-coder:1.3b", "artifact": "deepseek-coder-1-3b", "timeout": "180"},
+              {"model": "yi-coder:1.5b", "artifact": "yi-coder-1-5b", "timeout": "180"},
+              {"model": "opencoder:1.5b", "artifact": "opencoder-1-5b", "timeout": "240"},
           ]
           if os.environ.get("RUN_EXTENDED_CODERS", "false").lower() == "true":
               models.extend([
-                  {"model": "deepcoder:1.5b", "artifact": "deepcoder-1.5b", "timeout": "210"},
-                  {"model": "opencoder:1.5b", "artifact": "opencoder-1.5b", "timeout": "180"},
-                  {"model": "yi-coder:1.5b", "artifact": "yi-coder-1.5b", "timeout": "180"},
-                  {"model": "deepseek-coder:1.3b", "artifact": "deepseek-coder-1.3b", "timeout": "180"},
+                  {"model": "qwen3:0.6b", "artifact": "qwen3-0-6b", "timeout": "180"},
+                  {"model": "qwen3:1.7b", "artifact": "qwen3-1-7b", "timeout": "180"},
+                  {"model": "qwen2.5-coder:0.5b", "artifact": "qwen2-5-coder-0-5b", "timeout": "180"},
+                  {"model": "deepcoder:1.5b", "artifact": "deepcoder-1-5b", "timeout": "210"},
+                  {"model": "granite-code:3b", "artifact": "granite-code-3b", "timeout": "240"},
+                  {"model": "qwen2.5-coder:7b", "artifact": "qwen2-5-coder-7b", "timeout": "300"},
+                  {"model": "deepseek-coder:6.7b", "artifact": "deepseek-coder-6-7b", "timeout": "300"},
+                  {"model": "starcoder2:3b", "artifact": "starcoder2-3b", "timeout": "240"},
               ])
               print("Extended coding-model suite enabled.", file=sys.stderr)
           if os.environ.get("RUN_QWEN3_4B", "false").lower() == "true":
@@ -77,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select-models.outputs.matrix) }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       contents: read
       issues: write
@@ -87,7 +98,7 @@ jobs:
       MAX_REPAIR_ROUNDS: "3"
       EXEC_TIMEOUT_SECONDS: "5"
       LLM_TIMEOUT_SECONDS: ${{ matrix.timeout }}
-      LLM_MAX_TOKENS: "1024"
+      LLM_MAX_TOKENS: "1536"
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
       OLLAMA_KEEP_ALIVE: "60s"
@@ -147,9 +158,8 @@ jobs:
       - name: Smoke-test local model endpoint
         shell: bash
         run: |
-          # Qwen3 may spend a tiny token budget in its separate "thinking" field,
-          # leaving message.content empty and falsely failing a health check.
-          # Disable thinking for this deterministic connectivity smoke test.
+          # Use a larger output budget for reasoning-oriented coding models.
+          # A health check must verify user-visible content, not just hidden thinking.
           python - <<'PYSMOKE'
           import json
           from urllib.request import Request, urlopen
@@ -160,7 +170,7 @@ jobs:
               "stream": False,
               "think": False,
               "messages": [{"role": "user", "content": "Reply with exactly OK"}],
-              "options": {"num_ctx": 2048, "num_predict": 32, "temperature": 0},
+              "options": {"num_ctx": 2048, "num_predict": 128, "temperature": 0},
           }
           request = Request(
               "http://127.0.0.1:11434/api/chat",
@@ -168,7 +178,7 @@ jobs:
               headers={"Content-Type": "application/json"},
               method="POST",
           )
-          with urlopen(request, timeout=90) as response:
+          with urlopen(request, timeout=120) as response:
               data = json.load(response)
           message = data.get("message") or {}
           content = (message.get("content") or "").strip()
@@ -273,6 +283,65 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+  publish-generated-solutions:
+    name: Open PR with generated code snapshots
+    needs: [select-models, benchmark, aggregate]
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.publish_solutions == true && needs.select-models.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download model and aggregate artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: selfrepair-*
+          path: downloaded-results
+          merge-multiple: false
+      - name: Prepare reviewable snapshot
+        env:
+          SNAPSHOT_RUN_ID: ${{ github.run_id }}
+        run: python scripts/prepare_solution_snapshot.py downloaded-results benchmark-snapshots
+      - name: Open pull request with generated code
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "benchmark-snapshots/run-${{ github.run_id }}" ]; then
+            echo "No generated snapshot directory was produced."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BRANCH="benchmark-snapshots/${{ github.run_id }}"
+          git checkout -b "$BRANCH"
+          git add "benchmark-snapshots/run-${{ github.run_id }}"
+          if git diff --cached --quiet; then
+            echo "No generated files to publish."
+            exit 0
+          fi
+          git commit -m "Add generated coder benchmark snapshots for run ${{ github.run_id }}"
+          git push origin "$BRANCH"
+          BODY=$(cat <<EOF
+          Review-only snapshot of generated solutions and per-model evaluation logs. These files are untrusted model outputs, not application code. Inspect the model/problem outcome and tests before using any generated source.
+
+          Benchmark run: ${RUN_URL}
+
+          No issue is automatically closed by this snapshot PR.
+          EOF
+          )
+          gh pr create --repo "$GH_REPO" --base "${GITHUB_REF_NAME}" --head "$BRANCH" \\
+            --title "Generated coder solutions: run ${{ github.run_id }}" --body "$BODY"
+
   report-benchmark-failure:
     name: Report benchmark workflow failure as a GitHub Issue
     needs: [benchmark, aggregate]
@@ -299,6 +368,22 @@ jobs:
           set -euo pipefail
           TITLE="Automated benchmark workflow failure: Open-Source SLM Self-Repair Benchmark"
           FAILED_STEPS=$(gh run view "$RUN_ID" --repo "$GH_REPO" --json jobs --jq '[.jobs[] | select(.conclusion == "failure") | {job: .name, steps: [.steps[] | select(.conclusion == "failure") | .name]}]' 2>/dev/null || echo "Unable to query failed step names; open the run URL.")
+          FAILURE_KIND="workflow"
+          if grep -Eqi 'Install Python dependencies|pip install|ModuleNotFoundError|No module named|apt-get install' <<< "$FAILED_STEPS"; then
+            FAILURE_KIND="dependency"
+          elif grep -Eqi 'Run self-repair benchmark|Smoke-test local model endpoint|Model invocation' <<< "$FAILED_STEPS"; then
+            FAILURE_KIND="agentic"
+          fi
+          FAILED_JOB_NAMES=$(gh run view "$RUN_ID" --repo "$GH_REPO" --json jobs --jq '[.jobs[] | select(.conclusion == "failure") | .name] | .[]' 2>/dev/null || true)
+          MODEL_LABELS=""
+          while IFS= read -r job_name; do
+            if [[ "$job_name" =~ ^Benchmark[[:space:]](.+)$ ]]; then
+              model_slug=$(printf '%s' "${BASH_REMATCH[1]}" | sed -E 's/[^a-zA-Z0-9._-]+/-/g' | sed -E 's/^-+|-+$//g')
+              model_label="model-${model_slug}"
+              gh label create "$model_label" --repo "$GH_REPO" --color 1d76db --description "Coding model associated with failed workflow job" 2>/dev/null || true
+              MODEL_LABELS+=",${model_label}"
+            fi
+          done <<< "$FAILED_JOB_NAMES"
           BODY=$(cat <<EOF
           ## Automated benchmark workflow failure
 
@@ -324,10 +409,12 @@ jobs:
           )
           gh label create automation --repo "$GH_REPO" --color 5319e7 --description "Created or updated by workflow automation" 2>/dev/null || true
           gh label create bug --repo "$GH_REPO" --color d73a4a --description "Bug or workflow failure" 2>/dev/null || true
+          gh label create "failure-$FAILURE_KIND" --repo "$GH_REPO" --color e4e669 --description "Workflow failure category" 2>/dev/null || true
           EXISTING=$(gh issue list --repo "$GH_REPO" --state open --search '"Automated benchmark workflow failure" in:title' --json number,title --jq '.[] | select(.title == "'"$TITLE"'") | .number' | head -n1 || true)
           if [[ -n "$EXISTING" ]]; then
             gh issue comment "$EXISTING" --repo "$GH_REPO" --body "$BODY"
+            gh issue edit "$EXISTING" --repo "$GH_REPO" --add-label "failure-$FAILURE_KIND${MODEL_LABELS}" || true
             echo "Updated existing benchmark issue #$EXISTING"
           else
-            gh issue create --repo "$GH_REPO" --title "$TITLE" --body "$BODY" --label "automation,bug"
+            gh issue create --repo "$GH_REPO" --title "$TITLE" --body "$BODY" --label "automation,bug,failure-$FAILURE_KIND${MODEL_LABELS}"
           fi

@@ -1,0 +1,113 @@
+{
+  "name": "min_path_sum",
+  "difficulty": "medium-hard",
+  "statement": "Implement min_path_sum(grid), returning the minimum sum of values along a path from top-left to bottom-right of a non-empty rectangular grid, moving only right or down. Cell values are non-negative integers.",
+  "tests": [
+    {
+      "args": [
+        [
+          [
+            1,
+            3,
+            1
+          ],
+          [
+            1,
+            5,
+            1
+          ],
+          [
+            4,
+            2,
+            1
+          ]
+        ]
+      ],
+      "expected": 7,
+      "category": "canonical_grid_dp"
+    },
+    {
+      "args": [
+        [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            4,
+            5,
+            6
+          ]
+        ]
+      ],
+      "expected": 12,
+      "category": "rectangular_grid"
+    },
+    {
+      "args": [
+        [
+          [
+            5
+          ]
+        ]
+      ],
+      "expected": 5,
+      "category": "single_cell"
+    },
+    {
+      "args": [
+        [
+          [
+            1,
+            2,
+            3,
+            4
+          ]
+        ]
+      ],
+      "expected": 10,
+      "category": "single_row"
+    },
+    {
+      "args": [
+        [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ]
+      ],
+      "expected": 6,
+      "category": "single_column"
+    },
+    {
+      "args": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ]
+      ],
+      "expected": 0,
+      "category": "zero_values"
+    }
+  ],
+  "bug_family": "grid_dynamic_programming",
+  "bug_patterns": [
+    "first row/column initialization",
+    "wrong predecessor minimum",
+    "in-place update ordering"
+  ],
+  "difficulty_rubric": "Medium-hard: grid DP with boundary initialization"
+}

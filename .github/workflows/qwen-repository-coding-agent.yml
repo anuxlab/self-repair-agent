@@ -14,18 +14,22 @@ on:
       model:
         description: "Ollama model tag"
         required: true
-        default: "qwen3:1.7b"
+        default: "qwen2.5-coder:1.5b"
         type: choice
         options:
+          - "qwen2.5-coder:1.5b"
+          - "qwen2.5-coder:3b"
+          - "deepseek-coder:1.3b"
+          - "yi-coder:1.5b"
+          - "opencoder:1.5b"
           - "qwen3:0.6b"
           - "qwen3:1.7b"
           - "qwen2.5-coder:0.5b"
-          - "qwen2.5-coder:1.5b"
-          - "qwen2.5-coder:3b"
           - "deepcoder:1.5b"
-          - "opencoder:1.5b"
-          - "yi-coder:1.5b"
-          - "deepseek-coder:1.3b"
+          - "granite-code:3b"
+          - "starcoder2:3b"
+          - "qwen2.5-coder:7b"
+          - "deepseek-coder:6.7b"
           - "qwen3:4b"
 
 # No repository write permissions in the model-generation or test job.
@@ -42,7 +46,7 @@ jobs:
       TARGET_ISSUE_NUMBER: ${{ inputs.issue_number }}
       QWEN_MODEL: ${{ inputs.model }}
       OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
-      LLM_TIMEOUT_SECONDS: ${{ inputs.model == 'qwen3:4b' && '300' || (inputs.model == 'qwen2.5-coder:3b' || inputs.model == 'deepcoder:1.5b') && '210' || (inputs.model == 'opencoder:1.5b' || inputs.model == 'yi-coder:1.5b' || inputs.model == 'deepseek-coder:1.3b') && '180' || '150' }}
+      LLM_TIMEOUT_SECONDS: ${{ (inputs.model == 'qwen3:4b' || inputs.model == 'qwen2.5-coder:7b' || inputs.model == 'deepseek-coder:6.7b') && '300' || (inputs.model == 'qwen2.5-coder:3b' || inputs.model == 'deepcoder:1.5b' || inputs.model == 'granite-code:3b' || inputs.model == 'starcoder2:3b') && '240' || '180' }}
       LLM_MAX_TOKENS: "2048"
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
@@ -80,9 +84,9 @@ jobs:
           ollama list
       - name: Smoke-test local model endpoint
         run: |
-          curl --silent --show-error --fail --max-time 90 http://127.0.0.1:11434/api/chat \\
+          curl --silent --show-error --fail --max-time 120 http://127.0.0.1:11434/api/chat \\
             -H 'Content-Type: application/json' \\
-            -d "{\\"model\\":\\"$QWEN_MODEL\\",\\"stream\\":false,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"Reply with exactly OK\\"}],\\"options\\":{\\"num_ctx\\":2048,\\"num_predict\\":64}}" \\
+            -d "{\"model\":\"$QWEN_MODEL\",\"stream\":false,\"think\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],\"options\":{\"num_ctx\":2048,\"num_predict\":128,\"temperature\":0}}" \\
             | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("message",{}).get("content"), d; print("Ollama model response received")'
       - name: Generate proposed repository patch
         shell: bash

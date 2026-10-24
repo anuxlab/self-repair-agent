@@ -71,37 +71,79 @@ def cleanup_python_caches() -> None:
             except OSError:
                 pass
 
-def report_invocation_issue(problem: str, error: str) -> None:
-    """Create/update an issue immediately for model invocation failures."""
+def report_problem_failure(
+    problem: str, spec: dict, error: str, failure_class: str = "model_invocation_error",
+    passed_tests: int | None = None, total_tests: int | None = None, rounds: int | None = None,
+) -> None:
+    """Create/update one labeled issue per model/problem after a failed repair attempt."""
     if not ISSUE_REPORTING or not os.getenv("GH_TOKEN") or not os.getenv("GITHUB_REPOSITORY"):
         return
     repo = os.environ["GITHUB_REPOSITORY"]
     model_slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", MODEL).strip("-")
-    title = f"SLM invocation failure: {model_slug} / {problem}"
+    problem_slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", Path(problem).stem).strip("-").lower()
+    difficulty = str(spec.get("difficulty", "unknown")).lower()
+    repair_level = (
+        "easy" if difficulty in {"easy", "easy-medium"} else
+        "medium" if difficulty in {"medium", "medium-hard"} else
+        "hard" if difficulty == "hard" else "unknown"
+    )
+    error_lower = error.lower()
+    failure_class_slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", failure_class.lower().replace("_", "-")).strip("-")
+    failure_kind = (
+        "dependency" if any(token in error_lower for
+                            token in ("modulenotfounderror", "no module named", "pip install", "dependency", "package not found"))
+        else "timeout" if "timeout" in error_lower or "timed out" in error_lower
+        else "agentic"
+    )
+    labels = [
+        "automation", "bug", "benchmark-failure", f"model-{model_slug}", f"problem-{problem_slug}",
+        f"difficulty-{difficulty}", f"repair-level-{repair_level}",
+        f"failure-{failure_kind}", f"failure-{failure_class_slug}",
+    ]
+    if failure_class == "model_invocation_error":
+        labels.append("failure-model-invocation")
+    title = f"Benchmark failure: {model_slug} / {problem_slug} / {difficulty}"
     run_url = os.getenv("GITHUB_RUN_URL") or (
         f"{os.getenv('GITHUB_SERVER_URL', 'https://github.com')}/"
         f"{repo}/actions/runs/{os.getenv('GITHUB_RUN_ID', 'unknown')}"
     )
     body = (
-        "## Model invocation failure detected during benchmark\n\n"
-        f"- **Model:** `{MODEL}`\n- **Problem:** `{problem}`\n"
-        f"- **Run:** {run_url}\n- **Failure:** `{error[:500]}`\n\n"
-        "The invocation failed before independent tests could assess generated code. "
-        "This is tracked separately from ordinary wrong-answer outcomes.\n\n"
+        "## Automated coding-task failure\n\n"
+        f"- **Model:** `{MODEL}`\n- **Problem ID:** `{problem_slug}`\n"
+        f"- **Difficulty:** `{difficulty}` (repair level: `{repair_level}`)\n"
+        f"- **Bug family:** `{spec.get('bug_family', 'unspecified')}`\n"
+        f"- **Failure class:** `{failure_class}`\n- **Failure category:** `{failure_kind}`\n"
+        f"- **Repair rounds attempted:** `{rounds if rounds is not None else 'not recorded'}`\n"
+        f"- **Independent tests passed:** `{passed_tests if passed_tests is not None else 'not evaluated'}/"
+        f"{total_tests if total_tests is not None else 'not evaluated'}`\n"
+        f"- **Run:** {run_url}\n\n"
+        f"### Last failure details\n\n{error[:1500]}\n\n"
+        "This issue is deduplicated by model + problem. It distinguishes model invocation/setup failures "
+        "from syntax/runtime/wrong-output failures; it does not claim the model's source is a repository bug.\n\n"
         "### Suggested checks\n"
-        "1. Inspect Ollama server logs and runner memory pressure.\n"
-        "2. Check the configured model-call timeout and output-token budget.\n"
-        "3. Confirm the model endpoint remains responsive.\n"
-        "4. Re-run after correcting the latency or infrastructure issue.\n"
+        "1. Inspect the model artifact, source snapshots, selfrepair_log.json, and Ollama diagnostics.\n"
+        "2. For invocation/dependency failures, inspect the first failed setup or smoke-test step.\n"
+        "3. For wrong outputs, compare failed test categories and repair rounds.\n"
+        "4. Re-run after addressing the relevant failure class.\n"
     )
     env = os.environ.copy()
     try:
-        for label, color, desc in [
+        label_specs = [
             ("automation", "5319e7", "Created by workflow automation"),
             ("bug", "d73a4a", "Bug or failure"),
-        ]:
+            ("benchmark-failure", "b60205", "Model/problem did not converge or could not be evaluated"),
+            (f"model-{model_slug}", "1d76db", "Coding model associated with the failure"),
+            (f"problem-{problem_slug}", "0052cc", "Problem/question ID associated with the failure"),
+            (f"difficulty-{difficulty}", "c2e0c6", "Benchmark task difficulty"),
+            (f"repair-level-{repair_level}", "bfdadc", "Estimated bug-repair difficulty"),
+            (f"failure-{failure_kind}", "e4e669", "Failure category"),
+            (f"failure-{failure_class_slug}", "d93f0b", "Failure class for the model/problem result"),
+        ]
+        if failure_class == "model_invocation_error":
+            label_specs.append(("failure-model-invocation", "d93f0b", "Model call failed before evaluation"))
+        for label, color, desc in label_specs:
             subprocess.run(["gh", "label", "create", label, "--repo", repo, "--color", color,
-                            "--description", desc], env=env, capture_output=True, text=True,
+                            "--description", desc[:100]], env=env, capture_output=True, text=True,
                            timeout=15, check=False)
         listed = subprocess.run(
             ["gh", "issue", "list", "--repo", repo, "--state", "open", "--json", "number,title"],
@@ -111,13 +153,16 @@ def report_invocation_issue(problem: str, error: str) -> None:
         if existing:
             subprocess.run(["gh", "issue", "comment", existing, "--repo", repo, "--body", body],
                            env=env, capture_output=True, text=True, timeout=20, check=True)
-            log.warning("Updated GitHub issue #%s for invocation failure (%s)", existing, problem)
+            label_csv = ",".join(labels)
+            subprocess.run(["gh", "issue", "edit", existing, "--repo", repo, "--add-label", label_csv],
+                           env=env, capture_output=True, text=True, timeout=20, check=False)
+            log.warning("Updated GitHub issue #%s for benchmark failure (%s)", existing, problem)
         else:
             created = subprocess.run(
                 ["gh", "issue", "create", "--repo", repo, "--title", title, "--body", body,
-                 "--label", "automation,bug"], env=env, capture_output=True, text=True,
+                 "--label", ",".join(labels)], env=env, capture_output=True, text=True,
                 timeout=20, check=True)
-            log.error("Created GitHub issue for model invocation failure: %s", created.stdout.strip())
+            log.error("Created GitHub issue for benchmark failure: %s", created.stdout.strip())
     except Exception as exc:
         log.warning("Could not report invocation failure to GitHub Issues: %s", exc)
 
@@ -179,12 +224,18 @@ def solve(spec_path: Path) -> dict:
                          "failure_class": "model_invocation_error",
                          "timed_out": "timeout" in error_text.lower()}
             log.exception("Model invocation failed for %s", slug)
-            report_invocation_issue(spec_path.name, error_text)
+            report_problem_failure(spec_path.name, spec, error_text, failure_class="model_invocation_error", total_tests=len(spec["tests"]), rounds=len(history) + 1)
+            # Keep a machine-readable record even when no source was returned.
+            (SOLUTIONS_DIR / f"{slug}.round-{round_no:02d}.status.json").write_text(
+                json.dumps({"round": round_no, "model": MODEL, "problem": spec_path.name,
+                            "failure_class": "model_invocation_error", "error": error_text},
+                           indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             break
         syntax_error = validate_syntax(code)
-        solution_path.write_text(code)
+        solution_path.write_text(code, encoding="utf-8")
+        (SOLUTIONS_DIR / f"{slug}.round-{round_no:02d}.py").write_text(code, encoding="utf-8")
         if syntax_error:
-            last_test = {"passed": False, "passed_tests": 0, "total_tests": len(spec["tests"]), "failures": [syntax_error], "exit_code": None, "timed_out": False, "stdout": "", "stderr": ""}
+            last_test = {"passed": False, "passed_tests": 0, "total_tests": len(spec["tests"]), "failures": [syntax_error], "failure_class": "syntax_error", "exit_code": None, "timed_out": False, "stdout": "", "stderr": ""}
         else:
             last_test = run_tests(solution_path, spec_path)
         failure_class = ("syntax_error" if syntax_error else last_test.get("failure_class", "unknown"))
@@ -211,8 +262,16 @@ def solve(spec_path: Path) -> dict:
             "converged": converged, "passed_tests": last_test.get("passed_tests", 0),
             "total_tests": last_test.get("total_tests", len(spec["tests"])),
             "problem_seconds": round(time.perf_counter() - started_problem, 4),
-            "final_code_path": str(solution_path.relative_to(ROOT)), "final_code": code,
+            "final_code_path": str(solution_path.relative_to(ROOT)) if solution_path.exists() else None, "final_code": code,
             "last_test_report": last_test, "history": history}
+    if not converged and result["failure_class"] != "model_invocation_error":
+        failure_details = "\\n".join(last_test.get("failures", [])[:12]) or last_test.get("error") or result["failure_class"]
+        report_problem_failure(
+            spec_path.name, spec, failure_details,
+            failure_class=result["failure_class"],
+            passed_tests=result["passed_tests"], total_tests=result["total_tests"],
+            rounds=result["rounds"],
+        )
     cleanup_python_caches()
     return result
 
@@ -229,6 +288,20 @@ def main() -> int:
               "problem_count": len(results), "solved_count": sum(r["converged"] for r in results),
               "pass_rate": round(sum(r["converged"] for r in results) / len(results), 4), "results": results}
     LOG_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+    manifest = {
+        "model": MODEL,
+        "problem_count": len(results),
+        "solved_count": report["solved_count"],
+        "solutions": [
+            {"problem": r["problem"], "difficulty": r["difficulty"],
+             "converged": r["converged"], "rounds": r["rounds"],
+             "rounds_to_converge": r["rounds_to_converge"],
+             "failure_class": r["failure_class"], "source": r["final_code_path"]}
+            for r in results
+        ],
+    }
+    (SOLUTIONS_DIR / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     log.info("Results: %d/%d solved. Report: %s", report["solved_count"], len(results), LOG_PATH)
     # Wrong answers are benchmark outcomes; model invocation errors fail the job.
     invocation_errors = [r for r in results if r.get("failure_class") == "model_invocation_error"]

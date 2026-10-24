@@ -1,0 +1,176 @@
+{
+  "name": "shortest_path",
+  "difficulty": "hard",
+  "statement": "Implement shortest_path(n, edges, source, target) for an undirected weighted graph with vertices 0..n-1 and non-negative edge weights. edges is a list of [u,v,weight]. Return the minimum distance, or -1 if target is unreachable. Parallel edges may exist. Aim for Dijkstra's algorithm.",
+  "tests": [
+    {
+      "args": [
+        5,
+        [
+          [
+            0,
+            1,
+            4
+          ],
+          [
+            0,
+            2,
+            1
+          ],
+          [
+            2,
+            1,
+            2
+          ],
+          [
+            1,
+            3,
+            1
+          ],
+          [
+            2,
+            3,
+            5
+          ],
+          [
+            3,
+            4,
+            3
+          ]
+        ],
+        0,
+        4
+      ],
+      "expected": 7,
+      "category": "canonical_dijkstra"
+    },
+    {
+      "args": [
+        3,
+        [
+          [
+            0,
+            1,
+            2
+          ]
+        ],
+        0,
+        2
+      ],
+      "expected": -1,
+      "category": "unreachable_target"
+    },
+    {
+      "args": [
+        1,
+        [],
+        0,
+        0
+      ],
+      "expected": 0,
+      "category": "same_source_target"
+    },
+    {
+      "args": [
+        4,
+        [
+          [
+            0,
+            1,
+            10
+          ],
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            1,
+            2,
+            2
+          ],
+          [
+            0,
+            2,
+            9
+          ]
+        ],
+        0,
+        2
+      ],
+      "expected": 4,
+      "category": "parallel_edges"
+    },
+    {
+      "args": [
+        4,
+        [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            1,
+            2,
+            0
+          ],
+          [
+            2,
+            3,
+            5
+          ],
+          [
+            0,
+            3,
+            8
+          ]
+        ],
+        0,
+        3
+      ],
+      "expected": 5,
+      "category": "zero_weight_edges"
+    },
+    {
+      "args": [
+        4,
+        [
+          [
+            0,
+            1,
+            1
+          ],
+          [
+            1,
+            2,
+            1
+          ],
+          [
+            2,
+            3,
+            1
+          ],
+          [
+            0,
+            3,
+            10
+          ]
+        ],
+        0,
+        3
+      ],
+      "expected": 3,
+      "category": "non_greedy_route"
+    }
+  ],
+  "bug_family": "graph_shortest_path",
+  "bug_patterns": [
+    "incorrect priority queue updates",
+    "visited too early",
+    "direct-edge instead of shortest route",
+    "unreachable handling",
+    "parallel-edge handling"
+  ],
+  "difficulty_rubric": "Hard: Dijkstra invariant, weighted graph, disconnected components"
+}

@@ -1,0 +1,128 @@
+{
+  "name": "can_finish",
+  "difficulty": "medium",
+  "statement": "Implement can_finish(num_courses, prerequisites). Each pair [course, prerequisite] means prerequisite must be taken first. Return True if all courses can be completed, otherwise False. Detect cycles in a directed graph.",
+  "tests": [
+    {
+      "args": [
+        2,
+        [
+          [
+            1,
+            0
+          ]
+        ]
+      ],
+      "expected": true,
+      "category": "simple_dag"
+    },
+    {
+      "args": [
+        2,
+        [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ]
+      ],
+      "expected": false,
+      "category": "two_node_cycle"
+    },
+    {
+      "args": [
+        4,
+        [
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            2
+          ]
+        ]
+      ],
+      "expected": true,
+      "category": "long_chain"
+    },
+    {
+      "args": [
+        3,
+        [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            0
+          ]
+        ]
+      ],
+      "expected": false,
+      "category": "long_cycle"
+    },
+    {
+      "args": [
+        1,
+        []
+      ],
+      "expected": true,
+      "category": "single_course"
+    },
+    {
+      "args": [
+        3,
+        []
+      ],
+      "expected": true,
+      "category": "no_dependencies"
+    },
+    {
+      "args": [
+        4,
+        [
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            0
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ]
+        ]
+      ],
+      "expected": true,
+      "category": "branching_dag"
+    }
+  ],
+  "bug_family": "directed_graph_cycle_detection",
+  "bug_patterns": [
+    "cycle detection state confusion",
+    "wrong edge direction",
+    "disconnected vertices",
+    "empty prerequisite list"
+  ],
+  "difficulty_rubric": "Medium: directed graph traversal/topological reasoning"
+}

@@ -1,0 +1,71 @@
+{
+  "name": "edit_distance",
+  "difficulty": "hard",
+  "statement": "Implement edit_distance(a, b), the Levenshtein distance between two strings using insertions, deletions, and substitutions, each costing one. Return 0 for equal strings. Aim for O(len(a)*len(b)) time.",
+  "tests": [
+    {
+      "args": [
+        "horse",
+        "ros"
+      ],
+      "expected": 3,
+      "category": "canonical_dp"
+    },
+    {
+      "args": [
+        "intention",
+        "execution"
+      ],
+      "expected": 5,
+      "category": "multiple_operations"
+    },
+    {
+      "args": [
+        "",
+        "abc"
+      ],
+      "expected": 3,
+      "category": "empty_string"
+    },
+    {
+      "args": [
+        "abc",
+        ""
+      ],
+      "expected": 3,
+      "category": "empty_target"
+    },
+    {
+      "args": [
+        "same",
+        "same"
+      ],
+      "expected": 0,
+      "category": "identical_strings"
+    },
+    {
+      "args": [
+        "a",
+        "b"
+      ],
+      "expected": 1,
+      "category": "single_substitution"
+    },
+    {
+      "args": [
+        "kitten",
+        "sitting"
+      ],
+      "expected": 3,
+      "category": "mixed_operations"
+    }
+  ],
+  "bug_family": "two_dimensional_dynamic_programming",
+  "bug_patterns": [
+    "wrong base row or column",
+    "incorrect transition minimum",
+    "off-by-one indexing",
+    "empty string boundary"
+  ],
+  "difficulty_rubric": "Hard: two-dimensional recurrence and boundary initialization"
+}

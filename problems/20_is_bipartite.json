@@ -1,0 +1,125 @@
+{
+  "name": "is_bipartite",
+  "difficulty": "medium-hard",
+  "statement": "Implement is_bipartite(graph), where graph is an undirected graph represented as adjacency lists graph[u]. Return True if vertices can be colored with two colors so every edge joins different colors, otherwise False. The graph may be disconnected or empty.",
+  "tests": [
+    {
+      "args": [
+        [
+          [
+            1,
+            3
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            0,
+            2
+          ]
+        ]
+      ],
+      "expected": true,
+      "category": "even_cycle"
+    },
+    {
+      "args": [
+        [
+          [
+            1,
+            2
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            0,
+            1
+          ]
+        ]
+      ],
+      "expected": false,
+      "category": "odd_cycle"
+    },
+    {
+      "args": [
+        []
+      ],
+      "expected": true,
+      "category": "single_vertex"
+    },
+    {
+      "args": [
+        []
+      ],
+      "expected": true,
+      "category": "empty_graph"
+    },
+    {
+      "args": [
+        [
+          [],
+          [],
+          []
+        ]
+      ],
+      "expected": true,
+      "category": "disconnected_isolates"
+    },
+    {
+      "args": [
+        [
+          [
+            1
+          ],
+          [
+            0
+          ],
+          [
+            3
+          ],
+          [
+            2
+          ]
+        ]
+      ],
+      "expected": true,
+      "category": "disconnected_components"
+    },
+    {
+      "args": [
+        [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            0
+          ],
+          [
+            0
+          ],
+          [
+            0
+          ]
+        ]
+      ],
+      "expected": true,
+      "category": "star_graph"
+    }
+  ],
+  "bug_family": "graph_coloring_bfs_dfs",
+  "bug_patterns": [
+    "color assignment conflicts",
+    "only processing component zero",
+    "self/odd cycle logic"
+  ],
+  "difficulty_rubric": "Medium-hard: graph traversal across disconnected components"
+}

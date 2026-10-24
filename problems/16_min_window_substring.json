@@ -1,0 +1,71 @@
+{
+  "name": "min_window",
+  "difficulty": "hard",
+  "statement": "Implement min_window(s, t), returning the shortest substring of s that contains every character in t with the required multiplicity. Return an empty string if no such window exists. If t is empty, return an empty string.",
+  "tests": [
+    {
+      "args": [
+        "ADOBECODEBANC",
+        "ABC"
+      ],
+      "expected": "BANC",
+      "category": "canonical_sliding_window"
+    },
+    {
+      "args": [
+        "a",
+        "a"
+      ],
+      "expected": "a",
+      "category": "exact_match"
+    },
+    {
+      "args": [
+        "a",
+        "aa"
+      ],
+      "expected": "",
+      "category": "insufficient_multiplicity"
+    },
+    {
+      "args": [
+        "ab",
+        ""
+      ],
+      "expected": "",
+      "category": "empty_target"
+    },
+    {
+      "args": [
+        "aaab",
+        "aab"
+      ],
+      "expected": "aab",
+      "category": "duplicate_required_chars"
+    },
+    {
+      "args": [
+        "xyz",
+        "z"
+      ],
+      "expected": "z",
+      "category": "right_boundary"
+    },
+    {
+      "args": [
+        "cabefgecdaecf",
+        "cae"
+      ],
+      "expected": "aec",
+      "category": "window_shrink"
+    }
+  ],
+  "bug_family": "sliding_window_frequency_invariant",
+  "bug_patterns": [
+    "required multiplicity",
+    "valid-window counter errors",
+    "incorrect shrinking",
+    "empty target handling"
+  ],
+  "difficulty_rubric": "Hard: frequency bookkeeping and minimal-window invariant"
+}

@@ -1,32 +1,66 @@
-# Open-source SLM Self-Repair Agent
+# Open-Source SLM Self-Repair Agent
 
-A test-driven code-generation and repair benchmark using local Ollama models and LangChain's OpenAI-compatible chat client. No paid model APIs or API secrets are required. GitHub Actions runs one model variant per independent matrix runner, then aggregates the artifacts.
+![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![Ollama](https://img.shields.io/badge/Inference-Ollama-black?logo=ollama&logoColor=white)
+![Open-source models](https://img.shields.io/badge/Models-Open%20source-success)
+![Test-driven](https://img.shields.io/badge/Evaluation-Test--driven-blue)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+**Tags:** `coding-agents` · `self-repair` · `local-LLM` · `Ollama` · `LangChain` · `GitHub-Actions` · `benchmark` · `dynamic-programming` · `graph-algorithms` · `shortest-path` · `bug-triage`
+
+A test-driven code-generation and repair benchmark using local Ollama models and LangChain's OpenAI-compatible chat client. No paid model APIs or model-provider secrets are required. GitHub Actions runs each model on an independent runner, preserves generated code and round-by-round snapshots, and aggregates the results.
+
+## Proven baseline (previous 5-problem suite)
+
+The latest uploaded run completed all five original tasks and 30/30 tests in one repair round for each of these models. These are **historical baseline results**, not results on the expanded 21-problem suite below.
+
+| Model | Original tasks solved | Tests passed | Repair rounds for solved tasks | Mean seconds/task | Default? |
+|---|---:|---:|---:|---:|---|
+| `qwen2.5-coder:1.5b` | 5/5 | 30/30 | 1 | 4.2 | Yes |
+| `qwen2.5-coder:3b` | 5/5 | 30/30 | 1 | 10.7 | Yes |
+| `deepseek-coder:1.3b` | 5/5 | 30/30 | 1 | 9.3 | Yes |
+| `yi-coder:1.5b` | 5/5 | 30/30 | 1 | 9.5 | Yes |
+| `opencoder:1.5b` | 5/5 | 30/30 | 1 | 18.9 | Yes |
+
+Models that timed out on the previous suite, and DeepCoder (which failed its smoke test before evaluation), are experimental/opt-in rather than default. A new baseline must be established after the larger problem corpus runs in CI. See [`reports/2026-10-24-run-analysis.md`](reports/2026-10-24-run-analysis.md) for the log diagnosis and validation notes.
 
 ## What it measures
 
-- Five Python problems: addition, normalized palindrome, two-sum, maximum subarray, and trapping rain water.
+- 21 Python problems and 134 independent test cases spanning correctness and normalization, hashing, dynamic programming, grid DP, knapsack, string segmentation, sliding windows, graph traversal, cycle detection, bipartite checks, Dijkstra shortest paths, network delay, and word-ladder BFS.
 - Independent executable test cases, including boundary cases. A zero process exit is **not** considered a pass; every test must pass.
 - Up to three generate/test/repair rounds, syntax pre-checks, per-call timing, test results, code snapshots, and JSON audit logs.
-- Default matrix compares `qwen3:0.6b`, `qwen3:1.7b`, and `qwen2.5-coder` at 0.5B, 1.5B, and 3B. Each model runs on its own hosted runner. A manual `run_extended_coders=true` run adds `deepcoder:1.5b`, `opencoder:1.5b`, `yi-coder:1.5b`, and `deepseek-coder:1.3b`. Qwen3 4B remains paused unless explicitly enabled.
+- Default matrix runs only the five models that passed the previous 5-problem baseline. A manual `run_extended_coders=true` run adds slower/experimental Qwen3 0.6B/1.7B, Qwen2.5-Coder 0.5B/7B, DeepCoder 1.5B, DeepSeek-Coder 6.7B, Granite Code 3B, and StarCoder2 3B. Qwen3 4B remains separately opt-in.
 
 ## Run locally
 
 Install Ollama and Python 3.11+, start `ollama serve`, and pull a model:
 
 ```bash
-ollama pull qwen3:1.7b
+ollama pull qwen2.5-coder:1.5b
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python -m unittest discover -s tests -p 'test_*.py' -v
-QWEN_MODEL=qwen3:4b python agent/self_repair_agent.py
+QWEN_MODEL=qwen2.5-coder:1.5b python agent/self_repair_agent.py
 ```
 
 Artifacts are written under `artifacts/solutions/` and `artifacts/selfrepair_log.json`.
 
 ## CI
 
-Push to `main` or manually run **Open-Source SLM Self-Repair Benchmark** from Actions. The workflow installs Ollama, pulls each model on its own runner, runs a smoke test and the benchmark, then uploads per-model and aggregate reports. For a first comparison, keep `run_extended_coders` disabled; enable it manually to add four small coding-specialist models. The hosted Ubuntu runner is CPU-only unless a different runner is configured, so larger models may take several minutes per problem. Each model has a bounded timeout based on its size.
+Push to `main` or manually run **Open-Source SLM Self-Repair Benchmark** from Actions. The workflow installs Ollama, pulls each model on its own runner, runs a smoke test and the benchmark, then uploads per-model and aggregate reports. Leave `run_extended_coders` disabled for the stable baseline; enable it to investigate slower or experimental models. For a manual run, `publish_solutions=true` opens a review-only PR containing generated source snapshots and evaluation logs. It never merges generated code automatically. Hosted Ubuntu runners are CPU-only unless a different runner is configured.
+
+## Problem corpus and references
+
+The repository's JSON task statements and expected outputs are authored for this project; the benchmark does not bundle copied proprietary problem statements or hidden test sets. They use standard algorithm families and are mapped to public reference problems for terminology and comparison:
+
+- Dynamic programming: [Coin Change](https://leetcode.com/problems/coin-change/), [Longest Increasing Subsequence](https://leetcode.com/problems/longest-increasing-subsequence/), [Edit Distance](https://leetcode.com/problems/edit-distance/), [Word Break](https://leetcode.com/problems/word-break/), [0/1 Knapsack](https://en.wikipedia.org/wiki/Knapsack_problem).
+- Graphs and shortest paths: [Number of Islands](https://leetcode.com/problems/number-of-islands/), [Course Schedule](https://leetcode.com/problems/course-schedule/), [Network Delay Time](https://leetcode.com/problems/network-delay-time/), [Is Graph Bipartite?](https://leetcode.com/problems/is-graph-bipartite/), [Word Ladder](https://leetcode.com/problems/word-ladder/).
+- Other algorithm families: [Minimum Window Substring](https://leetcode.com/problems/minimum-window-substring/), [Merge Intervals](https://leetcode.com/problems/merge-intervals/), [Best Time to Buy and Sell Stock IV](https://leetcode.com/problems/best-time-to-buy-and-sell-stock-iv/).
+
+Additional open-weight coding-model families worth testing include [StarCoder2](https://ollama.com/library/starcoder2), [CodeGemma](https://ollama.com/library/codegemma), and [Granite Code](https://ollama.com/library/granite-code). The experimental workflow currently includes StarCoder2 3B and Granite Code 3B; CodeGemma is listed as a future candidate because its small variants differ in instruction-following behavior.
+
+The references are algorithmic pointers, not claims that these repository tasks reproduce the official platforms' exact tests or constraints. Use the same fixed problem set and multiple seeds when comparing models; keep an eye on runtime and test coverage as the suite grows.
 
 ## Reliability and safety notes
 
@@ -39,12 +73,15 @@ The benchmark improves evaluation quality, not the underlying model weights. Det
 
 - Artifact names use model slugs (`qwen3-0.6b`, `qwen3-1.7b`, `qwen3-4b`); Ollama tags contain `:` which GitHub artifact names reject.
 - Aggregation validates report files and exits non-zero when no valid records are present, while still writing diagnostic aggregate files.
-- Default model calls use a bounded 150-second timeout, no automatic retry, and a 1024-token output cap. Qwen3 4B is explicitly opt-in and uses a 240-second timeout. Tune these only after reviewing measured runtime and resource diagnostics.
+- Default model calls use bounded per-model timeouts, no automatic retry, and a 1536-token output cap. Qwen3 4B is explicitly opt-in and uses a 300-second timeout. Tune these only after reviewing measured runtime and resource diagnostics.
 - The model benchmark is CPU-based on standard GitHub-hosted Ubuntu runners; these runners do not provide a general-purpose GPU. Treat model timing as CPU-runner timing, not GPU performance.
+- Each round is saved under `artifacts/solutions/` as `<problem>.round-NN.py`; the latest code is `<problem>.py`. `manifest.json` records per-problem convergence and rounds. All these files are uploaded as model artifacts.
+- A manual `publish_solutions=true` run can open a PR under `benchmark-snapshots/run-<run_id>/` for code review. Snapshot PRs are not application patches and do not close issues.
+- Model-call/setup failures are separated from wrong answers. A non-converged model/problem creates or updates one deduplicated issue after the repair budget is exhausted—not one issue per failed test. Labels include model, problem ID, task difficulty, repair level, and failure category.
 
 ## Optional repository coding agent (PR-only)
 
-The separate **Qwen Repository Coding Agent (PR-only)** workflow can be run manually from GitHub Actions. Supply a specific task and select a model from the coding-model list, including Qwen3, Qwen2.5-Coder, DeepCoder, OpenCoder, Yi-Coder, or DeepSeek-Coder. Qwen3 4B is available only when deliberately selected. The default is `qwen3:1.7b`. It reads a bounded set of tracked repository files, asks the local Ollama model for a unified diff, validates the patch paths, applies it in a job without write credentials, and runs the existing unit tests and syntax checks. If checks pass, a separate job opens a pull request. It never pushes directly to the default branch, and the model-generation job never receives a write token.
+The separate **Qwen Repository Coding Agent (PR-only)** workflow can be run manually from GitHub Actions. Supply a specific task and select a model from the coding-model list, including Qwen3, Qwen2.5-Coder, DeepCoder, OpenCoder, Yi-Coder, DeepSeek-Coder, Granite Code, and StarCoder2. Qwen3 4B is available only when deliberately selected. The default is `qwen2.5-coder:1.5b`, the fastest model that passed the previous baseline. It reads a bounded set of tracked repository files, asks the local Ollama model for a unified diff, validates the patch paths, applies it in a job without write credentials, and runs the existing unit tests and syntax checks. If checks pass, a separate job opens a pull request. It never pushes directly to the default branch, and the model-generation job never receives a write token.
 
 ### Token configuration
 
@@ -65,7 +102,7 @@ An optional repository Actions secret named `GH_CLASSIC_TOKEN` is supported as a
 
 Each problem spec labels tests with a bug category and declares a broad difficulty rubric. The run log records per-round failure classes (syntax error, runtime exception, wrong output, timeout/model error), test-category outcomes, convergence, rounds and elapsed time. The aggregate report summarizes observed success by difficulty and bug category. These are empirical results on the included fixed tests, not a universal claim about model capability. Expand the test corpus and repeat seeds before drawing strong conclusions.
 
-Suggested interpretation: Easy = basic correctness; Easy-medium = normalization and edge cases; Medium = algorithm pattern/indexing/duplicates; Medium-hard = state invariants and negative cases; Hard = multi-step invariants and boundary handling. The benchmark currently has only one task per difficulty band, so difficulty-level conclusions are preliminary.
+Suggested interpretation: Easy = basic correctness; Easy-medium = normalization and edge cases; Medium = algorithm pattern/indexing/duplicates; Medium-hard = state invariants and negative cases; Hard = multi-step invariants and boundary handling. The expanded corpus includes multiple tasks across medium, medium-hard, and hard levels; each run should still be repeated with multiple seeds before drawing general conclusions.
 
 
 ## Automated GitHub Issues and closure
@@ -82,31 +119,13 @@ The issue reporters deduplicate by workflow-specific title and append a comment 
 
 ## Resource efficiency and slow-model handling
 
-- Qwen3 4B is paused by default because CPU-hosted runners repeatedly hit the 240-second model-call read timeout. It can only be enabled deliberately through `workflow_dispatch` (`run_qwen3_4b=true`).
-- Default comparison includes Qwen3 0.6B and 1.7B plus `qwen2.5-coder` 0.5B, 1.5B, and 3B. The optional extended suite adds `deepcoder:1.5b`, `opencoder:1.5b`, `yi-coder:1.5b`, and `deepseek-coder:1.3b`. Check each model's license and model card before redistribution or deployment; model availability in Ollama does not by itself establish identical licensing terms.
-- Model-file caching through `actions/cache` is disabled. It saved download time but did not reduce inference RAM usage and could consume GitHub cache quota. Each job pulls its model, uploads results, then unloads the model and removes local Ollama model files.
-- Ollama is configured for one parallel request, one loaded model, a short idle keep-alive, Flash Attention, and a 2048-token smoke-test context. The generation output budget is 1024 tokens by default to reduce CPU time.
-- Python bytecode generation is disabled in test subprocesses, and `__pycache__`/`.pyc` files are removed after each problem and before artifacts are uploaded. The previous artifact bundles contained `solutions/__pycache__` files; these are disposable bytecode, not evidence of a Python memory leak.
-- Model invocation exceptions are written to the JSON audit log, make the benchmark job fail, and trigger a best-effort deduplicated GitHub Issue immediately. The agent receives `GH_TOKEN` only for issue reporting; generated solution subprocesses receive a minimal environment without the token. Workflow-level failures are also summarized in a separate issue.
-- The logs provided so far show `httpx`/OpenAI-compatible client `ReadTimeout` after roughly 240 seconds. That is evidence of inference latency or an unresponsive endpoint, not proof of a memory leak. The workflow now captures Ollama logs and runner memory/disk diagnostics to help distinguish slow generation, OOM/resource pressure, and endpoint failure.
+- The default matrix includes only the five models that completed the previous five-task baseline. Slow or unverified models are opt-in; Qwen3 4B remains separately opt-in.
+- Model-file caching is disabled because it can consume GitHub cache quota without reducing inference memory. Each runner pulls one model, executes sequentially, uploads outputs, then unloads it.
+- Ollama uses one parallel request and one loaded model. Model calls have bounded timeouts and a 1536-token output budget for the expanded tasks.
+- Python bytecode generation is disabled in test subprocesses, and caches are removed before artifact upload.
+- Invocation exceptions are written to the JSON audit log and can create a deduplicated, labeled GitHub Issue. They are distinct from a model producing incorrect code. Generated-code test subprocesses receive a minimal environment without the issue-reporting token.
+- The uploaded run showed read timeouts for the slow models. This is evidence of inference latency or endpoint responsiveness, not proof of a memory leak.
 
+## Issue triage and labels
 
-## CI troubleshooting note (v7)
-
-The 2026-10-24 Actions run failed before the benchmark started because the model metadata probe called the Ollama `/api/show` endpoint with malformed shell line continuations, resulting in HTTP 405. The metadata probe now uses Python's `urllib` with an explicit POST request. The benchmark failure reporter's issue body also avoids unquoted shell backticks, which previously triggered command substitution and removed diagnostic paths from the issue text.
-
-If the aggregate report says no `selfrepair_log.json` files were found, check the first failed model setup/smoke-test step: model artifacts may contain diagnostics only because the evaluation process never started.
-
-
-## CI troubleshooting note (v8)
-
-The 2026-10-24 run `40066699768` uploaded diagnostics for all three models. The two Qwen3 jobs failed in the smoke test before starting the benchmark: their response used the `thinking` field and left `message.content` empty because the smoke test allowed only 64 generated tokens. This is a smoke-test design issue, not evidence of a memory leak. The `qwen2.5-coder:1.5b` job completed all five benchmark problems (30/30 tests) in one round each.
-
-The smoke test now sends `think: false` for Qwen3-compatible Ollama chat requests, allows a small bounded response, and emits a clear error if the server returns no content. Aggregation also marks uploaded model artifacts without `selfrepair_log.json` as incomplete and exits unsuccessfully rather than presenting a partial model matrix as a complete successful benchmark. The workflow-level issue reporter includes failed job/step names where the GitHub API returns them.
-
-
-## Expanded coding-model suite (v9)
-
-The default benchmark now compares Qwen3 0.6B/1.7B against Qwen2.5-Coder 0.5B/1.5B/3B. For a manually dispatched workflow, set `run_extended_coders=true` to add DeepCoder 1.5B, OpenCoder 1.5B, Yi-Coder 1.5B, and DeepSeek-Coder 1.3B. These are separate matrix jobs with safe artifact slugs and model-specific timeouts. Qwen3 4B remains a separate opt-in because prior CPU runs timed out.
-
-Do not infer model superiority from a single five-problem run. Compare per-problem tests passed, hidden/boundary test performance, repair rounds, elapsed time, timeout rate, and repeated-seed results. Models are pinned by explicit Ollama tags, but tags can be updated upstream; the report should retain the resolved model metadata and Ollama version for reproducibility.
+The benchmark checks for an existing open issue with the same model/problem identifier before creating another. Generated labels include `model-*`, `problem-*`, `difficulty-*`, `repair-level-easy|medium|hard`, and `failure-agentic|dependency|timeout`. The global workflow reporter uses `failure-workflow`, `failure-dependency`, or `failure-agentic` based on the failed step. A model's wrong answer is benchmark evidence, not automatically a repository bug. Reporters check for an existing open model/problem issue before creating another. Issues are not auto-closed merely because a later run passes; close them through a reviewed repair PR (`Fixes #N`) or an explicit maintainer decision after verification.

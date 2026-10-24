@@ -1,0 +1,100 @@
+{
+  "name": "word_ladder_length",
+  "difficulty": "hard",
+  "statement": "Implement word_ladder_length(begin, end, word_list), returning the number of words in the shortest transformation sequence from begin to end, changing exactly one character at a time and requiring every intermediate word to be in word_list. Return 0 if no sequence exists. begin and end have equal length.",
+  "tests": [
+    {
+      "args": [
+        "hit",
+        "cog",
+        [
+          "hot",
+          "dot",
+          "dog",
+          "lot",
+          "log",
+          "cog"
+        ]
+      ],
+      "expected": 5,
+      "category": "canonical_bfs"
+    },
+    {
+      "args": [
+        "hit",
+        "cog",
+        [
+          "hot",
+          "dot",
+          "dog",
+          "lot",
+          "log"
+        ]
+      ],
+      "expected": 0,
+      "category": "end_missing"
+    },
+    {
+      "args": [
+        "same",
+        "same",
+        [
+          "same"
+        ]
+      ],
+      "expected": 1,
+      "category": "identical_words"
+    },
+    {
+      "args": [
+        "a",
+        "c",
+        [
+          "a",
+          "b",
+          "c"
+        ]
+      ],
+      "expected": 2,
+      "category": "single_character"
+    },
+    {
+      "args": [
+        "red",
+        "tax",
+        [
+          "ted",
+          "tex",
+          "red",
+          "tax",
+          "tad",
+          "den",
+          "rex",
+          "pee"
+        ]
+      ],
+      "expected": 4,
+      "category": "multiple_routes"
+    },
+    {
+      "args": [
+        "aaa",
+        "bbb",
+        [
+          "aab",
+          "abb"
+        ]
+      ],
+      "expected": 0,
+      "category": "disconnected_words"
+    }
+  ],
+  "bug_family": "breadth_first_search_word_graph",
+  "bug_patterns": [
+    "wrong BFS distance initialization",
+    "end membership check",
+    "visited marking",
+    "one-character adjacency"
+  ],
+  "difficulty_rubric": "Hard: implicit graph construction and shortest-path BFS"
+}
