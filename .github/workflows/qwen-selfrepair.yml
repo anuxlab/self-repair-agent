@@ -101,11 +101,23 @@ jobs:
           ollama pull "$QWEN_MODEL"
           ollama list
           ollama show "$QWEN_MODEL" > artifacts/diagnostics/model-info.txt
-          curl --silent --show-error --fail http://127.0.0.1:11434/api/show \\
-            -H 'Content-Type: application/json' \\
-            -d "{\\"model\\":\\"$QWEN_MODEL\\"}" \\
-            | python -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("details", {}), indent=2))' \\
-            > artifacts/diagnostics/model-details.json
+          python - <<'PYMODEL'
+          import json
+          import os
+          from urllib.request import Request, urlopen
+
+          payload = json.dumps({"model": os.environ["QWEN_MODEL"]}).encode("utf-8")
+          request = Request(
+              "http://127.0.0.1:11434/api/show",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urlopen(request, timeout=30) as response:
+              details = json.load(response)
+          with open("artifacts/diagnostics/model-details.json", "w", encoding="utf-8") as f:
+              json.dump(details.get("details", {}), f, indent=2)
+          PYMODEL
       - name: Smoke-test local model endpoint
         run: |
           curl --silent --show-error --fail --max-time 90 http://127.0.0.1:11434/api/chat \
@@ -232,7 +244,7 @@ jobs:
           BODY=$(cat <<EOF
           ## Automated benchmark workflow failure
 
-          One or more model jobs or aggregation failed.
+          One or more model jobs or aggregation failed. This is an infrastructure/workflow failure unless the model execution logs show a test failure.
 
           - **Run:** ${RUN_URL}
           - **Run ID / attempt:** ${RUN_ID} / ${RUN_ATTEMPT}
@@ -240,8 +252,10 @@ jobs:
           - **Benchmark matrix result:** ${BENCHMARK_RESULT}
           - **Aggregation result:** ${AGGREGATE_RESULT}
 
-          Invocation failures are also reported as separate model/problem issues during the run when the agent catches them.
-          Check each model artifact's `diagnostics/ollama.log` and `diagnostics/runner-resources.txt`.
+          ### Diagnostics to inspect
+          - Check each model artifact's diagnostics/ollama.log and diagnostics/runner-resources.txt.
+          - If no selfrepair_log.json exists, inspect the first failed setup or smoke-test step; the agent may never have started.
+          - Model invocation failures are reported separately only if the benchmark process starts and catches the exception.
 
           This issue is generated automatically. Do not include secrets, tokens, or credentials in issue comments.
           EOF

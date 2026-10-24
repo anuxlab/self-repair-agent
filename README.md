@@ -89,3 +89,10 @@ The issue reporters deduplicate by workflow-specific title and append a comment 
 - Python bytecode generation is disabled in test subprocesses, and `__pycache__`/`.pyc` files are removed after each problem and before artifacts are uploaded. The previous artifact bundles contained `solutions/__pycache__` files; these are disposable bytecode, not evidence of a Python memory leak.
 - Model invocation exceptions are written to the JSON audit log, make the benchmark job fail, and trigger a best-effort deduplicated GitHub Issue immediately. The agent receives `GH_TOKEN` only for issue reporting; generated solution subprocesses receive a minimal environment without the token. Workflow-level failures are also summarized in a separate issue.
 - The logs provided so far show `httpx`/OpenAI-compatible client `ReadTimeout` after roughly 240 seconds. That is evidence of inference latency or an unresponsive endpoint, not proof of a memory leak. The workflow now captures Ollama logs and runner memory/disk diagnostics to help distinguish slow generation, OOM/resource pressure, and endpoint failure.
+
+
+## CI troubleshooting note (v7)
+
+The 2026-10-24 Actions run failed before the benchmark started because the model metadata probe called the Ollama `/api/show` endpoint with malformed shell line continuations, resulting in HTTP 405. The metadata probe now uses Python's `urllib` with an explicit POST request. The benchmark failure reporter's issue body also avoids unquoted shell backticks, which previously triggered command substitution and removed diagnostic paths from the issue text.
+
+If the aggregate report says no `selfrepair_log.json` files were found, check the first failed model setup/smoke-test step: model artifacts may contain diagnostics only because the evaluation process never started.
