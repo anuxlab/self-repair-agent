@@ -1,0 +1,52 @@
+# .github/workflows/qwen-selfrepair.yml
+name: Qwen Self-Repair Agent
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  self-repair:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install langchain langchain-openai langchain-community
+
+      - name: Run Qwen self-repair agent
+        env:
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+          QWEN_API_BASE: ${{ secrets.QWEN_API_BASE }}   # e.g. https://dashscope.aliyuncs.com/compatible-mode/v1
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python agent/self_repair_agent.py
+
+      - name: Upload self-repair log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selfrepair-log
+          path: selfrepair_log.json
+          retention-days: 14
+
+      - name: Upload final solutions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-solutions
+          path: solution.py
+          retention-days: 14
