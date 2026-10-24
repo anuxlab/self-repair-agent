@@ -19,7 +19,13 @@ on:
         options:
           - "qwen3:0.6b"
           - "qwen3:1.7b"
+          - "qwen2.5-coder:0.5b"
           - "qwen2.5-coder:1.5b"
+          - "qwen2.5-coder:3b"
+          - "deepcoder:1.5b"
+          - "opencoder:1.5b"
+          - "yi-coder:1.5b"
+          - "deepseek-coder:1.3b"
           - "qwen3:4b"
 
 # No repository write permissions in the model-generation or test job.
@@ -36,7 +42,7 @@ jobs:
       TARGET_ISSUE_NUMBER: ${{ inputs.issue_number }}
       QWEN_MODEL: ${{ inputs.model }}
       OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
-      LLM_TIMEOUT_SECONDS: ${{ inputs.model == 'qwen3:4b' && '240' || '150' }}
+      LLM_TIMEOUT_SECONDS: ${{ inputs.model == 'qwen3:4b' && '300' || (inputs.model == 'qwen2.5-coder:3b' || inputs.model == 'deepcoder:1.5b') && '210' || (inputs.model == 'opencoder:1.5b' || inputs.model == 'yi-coder:1.5b' || inputs.model == 'deepseek-coder:1.3b') && '180' || '150' }}
       LLM_MAX_TOKENS: "2048"
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"

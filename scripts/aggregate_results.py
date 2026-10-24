@@ -6,7 +6,17 @@ src = Path(sys.argv[1] if len(sys.argv) > 1 else "downloaded-results")
 out = Path("aggregate-report"); out.mkdir(parents=True, exist_ok=True)
 paths = sorted(src.rglob("selfrepair_log.json")) if src.exists() else []
 records, errors, seen = [], [], []
-if not paths: errors.append({"path": str(src), "error": "No selfrepair_log.json files found."})
+artifact_dirs = sorted(p for p in src.iterdir() if p.is_dir()) if src.exists() else []
+missing_report_dirs = []
+for artifact_dir in artifact_dirs:
+    if not any(artifact_dir.rglob("selfrepair_log.json")):
+        missing_report_dirs.append(artifact_dir.name)
+        errors.append({
+            "path": str(artifact_dir),
+            "error": "Artifact has no selfrepair_log.json; the model likely failed before evaluation (inspect diagnostics and the first failed workflow step).",
+        })
+if not paths:
+    errors.append({"path": str(src), "error": "No selfrepair_log.json files found."})
 for path in paths:
     try:
         report=json.loads(path.read_text(encoding="utf-8"))
@@ -24,9 +34,12 @@ for path in paths:
               "failure_class":r.get("failure_class","unknown"),"failed_bug_categories":r.get("failed_bug_categories",[]),
               "category_results":r.get("category_results",{})})
     except Exception as exc: errors.append({"path":str(path),"error":f"{type(exc).__name__}: {exc}"})
-models=sorted(set(seen)); summary={"schema_version":2,"report_files_found":len(paths),"models_found":models,"runs":records,"errors":errors}
+models=sorted(set(seen)); summary={"schema_version":3,"artifacts_found":len(artifact_dirs),"artifacts_missing_reports":missing_report_dirs,"report_files_found":len(paths),"models_found":models,"runs":records,"errors":errors}
 (out/"aggregate.json").write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
-lines=["# Self-Repair Agent: Bug-Level Capability Report","",f"Report files: **{len(paths)}** | Model-problem records: **{len(records)}** | Report errors: **{len(errors)}**","",
+lines=["# Self-Repair Agent: Bug-Level Capability Report","",f"Artifacts found: **{len(artifact_dirs)}** | Report files: **{len(paths)}** | Model-problem records: **{len(records)}** | Report errors: **{len(errors)}**",""]
+if missing_report_dirs:
+ lines += ["## Incomplete model artifacts","", "These artifacts were uploaded but contain no evaluation log. They must not be counted as model failures or successes; inspect the first failed setup/smoke-test step.",""] + [f"- `{name}`: missing `selfrepair_log.json`" for name in missing_report_dirs] + [""]
+lines += [
 "> Capability labels are operational labels for this benchmark's five hand-written problems. They are not universal measures of software-engineering skill. Small sample sizes and fixed tests limit generalization.","",
 "## Overall results","","| Model | Solved problems | Evaluated | Problem pass rate | Mean tests passed | Mean seconds/problem |","|---|---:|---:|---:|---:|---:|"]
 for m in models:

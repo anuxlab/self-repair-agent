@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: false
+      run_extended_coders:
+        description: "Also test DeepCoder, OpenCoder, Yi-Coder, and DeepSeek-Coder small coding models"
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -32,17 +37,38 @@ jobs:
       - id: models
         env:
           RUN_QWEN3_4B: ${{ github.event_name == 'workflow_dispatch' && inputs.run_qwen3_4b }}
+          RUN_EXTENDED_CODERS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_extended_coders }}
         shell: bash
         run: |
           set -euo pipefail
-          MODELS='{"include":[{"model":"qwen3:0.6b","artifact":"qwen3-0.6b"},{"model":"qwen3:1.7b","artifact":"qwen3-1.7b"},{"model":"qwen2.5-coder:1.5b","artifact":"qwen2-5-coder-1.5b"}]}'
-          if [[ "$RUN_QWEN3_4B" == "true" ]]; then
-            MODELS='{"include":[{"model":"qwen3:0.6b","artifact":"qwen3-0.6b"},{"model":"qwen3:1.7b","artifact":"qwen3-1.7b"},{"model":"qwen2.5-coder:1.5b","artifact":"qwen2-5-coder-1.5b"},{"model":"qwen3:4b","artifact":"qwen3-4b"}]}'
-            echo "Qwen3 4B explicitly enabled; expect substantially slower CPU inference."
-          else
-            echo "Qwen3 4B is paused. Enable it only for a manual workflow_dispatch run."
-          fi
-          echo "matrix=$MODELS" >> "$GITHUB_OUTPUT"
+          python - <<'PYMATRIX' >> "$GITHUB_OUTPUT"
+          import json, os, sys
+
+          # Keep the default run compact. The extended suite is opt-in because
+          # each matrix entry consumes a separate hosted-runner job and download.
+          models = [
+              {"model": "qwen3:0.6b", "artifact": "qwen3-0.6b", "timeout": "150"},
+              {"model": "qwen3:1.7b", "artifact": "qwen3-1.7b", "timeout": "150"},
+              {"model": "qwen2.5-coder:0.5b", "artifact": "qwen2-5-coder-0.5b", "timeout": "150"},
+              {"model": "qwen2.5-coder:1.5b", "artifact": "qwen2-5-coder-1.5b", "timeout": "150"},
+              {"model": "qwen2.5-coder:3b", "artifact": "qwen2-5-coder-3b", "timeout": "210"},
+          ]
+          if os.environ.get("RUN_EXTENDED_CODERS", "false").lower() == "true":
+              models.extend([
+                  {"model": "deepcoder:1.5b", "artifact": "deepcoder-1.5b", "timeout": "210"},
+                  {"model": "opencoder:1.5b", "artifact": "opencoder-1.5b", "timeout": "180"},
+                  {"model": "yi-coder:1.5b", "artifact": "yi-coder-1.5b", "timeout": "180"},
+                  {"model": "deepseek-coder:1.3b", "artifact": "deepseek-coder-1.3b", "timeout": "180"},
+              ])
+              print("Extended coding-model suite enabled.", file=sys.stderr)
+          if os.environ.get("RUN_QWEN3_4B", "false").lower() == "true":
+              models.append({"model": "qwen3:4b", "artifact": "qwen3-4b", "timeout": "300"})
+              print("Qwen3 4B explicitly enabled; expect substantially slower CPU inference.", file=sys.stderr)
+          else:
+              print("Qwen3 4B is paused. Enable it only for a manual workflow_dispatch run.", file=sys.stderr)
+          print("matrix=" + json.dumps({"include": models}, separators=(",", ":")))
+          PYMATRIX
+
 
   benchmark:
     name: Benchmark ${{ matrix.model }}
@@ -60,7 +86,7 @@ jobs:
       OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
       MAX_REPAIR_ROUNDS: "3"
       EXEC_TIMEOUT_SECONDS: "5"
-      LLM_TIMEOUT_SECONDS: ${{ matrix.model == 'qwen3:4b' && '240' || '150' }}
+      LLM_TIMEOUT_SECONDS: ${{ matrix.timeout }}
       LLM_MAX_TOKENS: "1024"
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
@@ -119,11 +145,42 @@ jobs:
               json.dump(details.get("details", {}), f, indent=2)
           PYMODEL
       - name: Smoke-test local model endpoint
+        shell: bash
         run: |
-          curl --silent --show-error --fail --max-time 90 http://127.0.0.1:11434/api/chat \
-            -H 'Content-Type: application/json' \
-            -d "{\"model\":\"$QWEN_MODEL\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],\"options\":{\"num_ctx\":2048,\"num_predict\":64}}" \
-            | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("message",{}).get("content"), d; print("Ollama model response received")'
+          # Qwen3 may spend a tiny token budget in its separate "thinking" field,
+          # leaving message.content empty and falsely failing a health check.
+          # Disable thinking for this deterministic connectivity smoke test.
+          python - <<'PYSMOKE'
+          import json
+          from urllib.request import Request, urlopen
+          import os
+
+          payload = {
+              "model": os.environ["QWEN_MODEL"],
+              "stream": False,
+              "think": False,
+              "messages": [{"role": "user", "content": "Reply with exactly OK"}],
+              "options": {"num_ctx": 2048, "num_predict": 32, "temperature": 0},
+          }
+          request = Request(
+              "http://127.0.0.1:11434/api/chat",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urlopen(request, timeout=90) as response:
+              data = json.load(response)
+          message = data.get("message") or {}
+          content = (message.get("content") or "").strip()
+          if not content:
+              raise SystemExit(
+                  "Ollama smoke test returned no message.content. "
+                  f"done_reason={data.get('done_reason')!r}; "
+                  f"thinking_chars={len(message.get('thinking') or '')}. "
+                  "Check that this Ollama version supports think=false."
+              )
+          print(f"Ollama smoke test passed for {payload['model']}: {content[:80]!r}")
+          PYSMOKE
       - name: Unit-test benchmark harness
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Run self-repair benchmark
@@ -241,10 +298,11 @@ jobs:
         run: |
           set -euo pipefail
           TITLE="Automated benchmark workflow failure: Open-Source SLM Self-Repair Benchmark"
+          FAILED_STEPS=$(gh run view "$RUN_ID" --repo "$GH_REPO" --json jobs --jq '[.jobs[] | select(.conclusion == "failure") | {job: .name, steps: [.steps[] | select(.conclusion == "failure") | .name]}]' 2>/dev/null || echo "Unable to query failed step names; open the run URL.")
           BODY=$(cat <<EOF
           ## Automated benchmark workflow failure
 
-          One or more model jobs or aggregation failed. This is an infrastructure/workflow failure unless the model execution logs show a test failure.
+          One or more model jobs or aggregation failed. This issue records an incomplete/failed CI run; it does not by itself mean a model failed a coding test.
 
           - **Run:** ${RUN_URL}
           - **Run ID / attempt:** ${RUN_ID} / ${RUN_ATTEMPT}
@@ -252,10 +310,14 @@ jobs:
           - **Benchmark matrix result:** ${BENCHMARK_RESULT}
           - **Aggregation result:** ${AGGREGATE_RESULT}
 
+          ### Failed jobs and steps
+          ${FAILED_STEPS}
+
           ### Diagnostics to inspect
-          - Check each model artifact's diagnostics/ollama.log and diagnostics/runner-resources.txt.
-          - If no selfrepair_log.json exists, inspect the first failed setup or smoke-test step; the agent may never have started.
-          - Model invocation failures are reported separately only if the benchmark process starts and catches the exception.
+          - Open each model artifact and inspect diagnostics/ollama.log, diagnostics/model-info.txt, diagnostics/model-details.json, and diagnostics/runner-resources.txt.
+          - A model artifact without selfrepair_log.json means evaluation did not complete; check setup and smoke-test steps first.
+          - If selfrepair_log.json exists, distinguish model invocation errors from incorrect test outputs.
+          - Aggregation must include every enabled model, or explicitly report missing model reports.
 
           This issue is generated automatically. Do not include secrets, tokens, or credentials in issue comments.
           EOF
