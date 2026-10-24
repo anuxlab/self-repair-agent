@@ -1,0 +1,11 @@
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+
+# Generated evaluation output; uploaded by GitHub Actions as artifacts
+artifacts/
+aggregate-report/
+downloaded-results/
+
+# Local Ollama files (models should not be committed)
+.ollama/

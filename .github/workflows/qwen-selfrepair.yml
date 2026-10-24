@@ -2,6 +2,12 @@ name: Open-Source SLM Self-Repair Benchmark
 
 on:
   workflow_dispatch:
+    inputs:
+      run_qwen3_4b:
+        description: "Opt in to the slow Qwen3 4B CPU benchmark (disabled by default)"
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -17,50 +23,75 @@ permissions:
   actions: read
 
 jobs:
+  select-models:
+    name: Select benchmark models
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.models.outputs.matrix }}
+    steps:
+      - id: models
+        env:
+          RUN_QWEN3_4B: ${{ github.event_name == 'workflow_dispatch' && inputs.run_qwen3_4b }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODELS='{"include":[{"model":"qwen3:0.6b","artifact":"qwen3-0.6b"},{"model":"qwen3:1.7b","artifact":"qwen3-1.7b"},{"model":"qwen2.5-coder:1.5b","artifact":"qwen2-5-coder-1.5b"}]}'
+          if [[ "$RUN_QWEN3_4B" == "true" ]]; then
+            MODELS='{"include":[{"model":"qwen3:0.6b","artifact":"qwen3-0.6b"},{"model":"qwen3:1.7b","artifact":"qwen3-1.7b"},{"model":"qwen2.5-coder:1.5b","artifact":"qwen2-5-coder-1.5b"},{"model":"qwen3:4b","artifact":"qwen3-4b"}]}'
+            echo "Qwen3 4B explicitly enabled; expect substantially slower CPU inference."
+          else
+            echo "Qwen3 4B is paused. Enable it only for a manual workflow_dispatch run."
+          fi
+          echo "matrix=$MODELS" >> "$GITHUB_OUTPUT"
+
   benchmark:
     name: Benchmark ${{ matrix.model }}
+    needs: select-models
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - model: "qwen3:0.6b"
-            artifact: "qwen3-0.6b"
-          - model: "qwen3:1.7b"
-            artifact: "qwen3-1.7b"
-          - model: "qwen3:4b"
-            artifact: "qwen3-4b"
-    timeout-minutes: 90
+      matrix: ${{ fromJSON(needs.select-models.outputs.matrix) }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
     env:
       QWEN_MODEL: ${{ matrix.model }}
       OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
       MAX_REPAIR_ROUNDS: "3"
       EXEC_TIMEOUT_SECONDS: "5"
-      LLM_TIMEOUT_SECONDS: "240"
-      LLM_MAX_TOKENS: "2048"
+      LLM_TIMEOUT_SECONDS: ${{ matrix.model == 'qwen3:4b' && '240' || '150' }}
+      LLM_MAX_TOKENS: "1024"
       PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OLLAMA_KEEP_ALIVE: "60s"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_CONTEXT_LENGTH: "2048"
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
       - name: Install Python dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
       - name: Install Ollama prerequisites
         run: sudo apt-get update && sudo apt-get install -y zstd
       - name: Setup Ollama
         uses: ai-action/setup-ollama@v2
-      - name: Cache model files
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama/models
-          key: ollama-${{ runner.os }}-${{ matrix.model }}-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ollama-${{ runner.os }}-${{ matrix.model }}-
+      # Model-file actions/cache deliberately disabled: it persists large model blobs
+      # between runs but does not reduce model RAM usage and can consume cache quota.
       - name: Start Ollama and pull model
+        env:
+          OLLAMA_KEEP_ALIVE: "60s"
+          OLLAMA_NUM_PARALLEL: "1"
+          OLLAMA_MAX_LOADED_MODELS: "1"
+          OLLAMA_FLASH_ATTENTION: "1"
+          OLLAMA_CONTEXT_LENGTH: "2048"
         run: |
+          mkdir -p artifacts/diagnostics
           (ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &)
           for i in $(seq 1 60); do
             if curl --silent --fail http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
@@ -69,29 +100,79 @@ jobs:
           curl --silent --fail http://127.0.0.1:11434/api/tags >/dev/null || { cat "$RUNNER_TEMP/ollama.log"; exit 1; }
           ollama pull "$QWEN_MODEL"
           ollama list
+          ollama show "$QWEN_MODEL" > artifacts/diagnostics/model-info.txt
+          curl --silent --show-error --fail http://127.0.0.1:11434/api/show \\
+            -H 'Content-Type: application/json' \\
+            -d "{\\"model\\":\\"$QWEN_MODEL\\"}" \\
+            | python -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("details", {}), indent=2))' \\
+            > artifacts/diagnostics/model-details.json
       - name: Smoke-test local model endpoint
         run: |
-          curl --silent --show-error --fail http://127.0.0.1:11434/api/chat \
+          curl --silent --show-error --fail --max-time 90 http://127.0.0.1:11434/api/chat \
             -H 'Content-Type: application/json' \
-            -d "{\"model\":\"$QWEN_MODEL\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}]}" \
+            -d "{\"model\":\"$QWEN_MODEL\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}],\"options\":{\"num_ctx\":2048,\"num_predict\":64}}" \
             | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("message",{}).get("content"), d; print("Ollama model response received")'
       - name: Unit-test benchmark harness
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Run self-repair benchmark
-        run: python agent/self_repair_agent.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPORT_GITHUB_ISSUES: "1"
+        shell: bash
+        run: |
+          set +e
+          mkdir -p artifacts/diagnostics
+          (while true; do
+            date -Is
+            free -h
+            ps -eo pid,rss,comm,args --sort=-rss | head -n 12
+            echo "---"
+            sleep 15
+          done) > "$RUNNER_TEMP/resource-samples.log" 2>&1 &
+          sampler_pid=$!
+          python agent/self_repair_agent.py
+          status=$?
+          kill "$sampler_pid" >/dev/null 2>&1 || true
+          wait "$sampler_pid" 2>/dev/null || true
+          cp "$RUNNER_TEMP/resource-samples.log" artifacts/diagnostics/resource-samples.log 2>/dev/null || true
+          exit "$status"
+      - name: Capture diagnostics and remove bytecode caches
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts/diagnostics
+          if [ -f "$RUNNER_TEMP/ollama.log" ]; then
+            tail -n 400 "$RUNNER_TEMP/ollama.log" > artifacts/diagnostics/ollama.log
+          fi
+          {
+            echo "### Runner memory"; free -h || true
+            echo "### Filesystem"; df -h "$HOME" || true
+            echo "### Ollama models"; ollama list || true
+          } > artifacts/diagnostics/runner-resources.txt
+          find . -type d -name __pycache__ -prune -exec rm -rf {} + || true
+          find . -type f -name '*.pyc' -delete || true
       - name: Upload model-specific results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: selfrepair-${{ strategy.job-index }}-${{ matrix.artifact }}
           path: artifacts/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
+      - name: Unload model and remove local Ollama cache
+        if: always()
+        shell: bash
+        run: |
+          ollama stop "$QWEN_MODEL" >/dev/null 2>&1 || true
+          rm -rf "$HOME/.ollama/models" "$HOME/.ollama/tmp" "$HOME/.cache/pip" || true
+          find . -type d -name __pycache__ -prune -exec rm -rf {} + || true
+          find . -type f -name '*.pyc' -delete || true
 
   aggregate:
     name: Aggregate model results
     if: always()
-    needs: benchmark
+    needs: [select-models, benchmark]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -111,7 +192,7 @@ jobs:
         if: always()
         run: |
           echo "Downloaded artifact tree:"
-          find downloaded-results -maxdepth 4 -type f -print 2>/dev/null || true
+          find downloaded-results -maxdepth 5 -type f -print 2>/dev/null || true
       - name: Aggregate JSON and Markdown report
         run: python scripts/aggregate_results.py downloaded-results
       - name: Upload aggregate report
@@ -122,7 +203,6 @@ jobs:
           path: aggregate-report/
           if-no-files-found: warn
           retention-days: 90
-
 
   report-benchmark-failure:
     name: Report benchmark workflow failure as a GitHub Issue
@@ -152,7 +232,7 @@ jobs:
           BODY=$(cat <<EOF
           ## Automated benchmark workflow failure
 
-          One or more benchmark/aggregation jobs failed.
+          One or more model jobs or aggregation failed.
 
           - **Run:** ${RUN_URL}
           - **Run ID / attempt:** ${RUN_ID} / ${RUN_ATTEMPT}
@@ -160,16 +240,13 @@ jobs:
           - **Benchmark matrix result:** ${BENCHMARK_RESULT}
           - **Aggregation result:** ${AGGREGATE_RESULT}
 
-          ### Investigation checklist
-          1. Inspect each model job for Ollama setup, model pull, inference timeout, and test failures.
-          2. Confirm each expected model artifact was uploaded.
-          3. Confirm aggregation found and validated model reports.
-          4. Re-run after fixing the root cause.
+          Invocation failures are also reported as separate model/problem issues during the run when the agent catches them.
+          Check each model artifact's `diagnostics/ollama.log` and `diagnostics/runner-resources.txt`.
 
           This issue is generated automatically. Do not include secrets, tokens, or credentials in issue comments.
           EOF
           )
-          gh label create automation --repo "$GH_REPO" --color 5319e7 --description "Created or updated by coding-agent automation" 2>/dev/null || true
+          gh label create automation --repo "$GH_REPO" --color 5319e7 --description "Created or updated by workflow automation" 2>/dev/null || true
           gh label create bug --repo "$GH_REPO" --color d73a4a --description "Bug or workflow failure" 2>/dev/null || true
           EXISTING=$(gh issue list --repo "$GH_REPO" --state open --search '"Automated benchmark workflow failure" in:title' --json number,title --jq '.[] | select(.title == "'"$TITLE"'") | .number' | head -n1 || true)
           if [[ -n "$EXISTING" ]]; then

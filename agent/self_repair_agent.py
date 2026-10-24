@@ -1,4 +1,3 @@
-\
 #!/usr/bin/env python3
 """Local-model code-generation and test-driven repair benchmark.
 
@@ -6,7 +5,7 @@ All generated code runs in a separate, time-limited subprocess. This is a CI
 benchmark, not a hardened security sandbox; never run untrusted code with secrets.
 """
 from __future__ import annotations
-import ast, json, logging, os, re, subprocess, sys, time
+import ast, json, logging, os, re, shutil, subprocess, sys, time
 from pathlib import Path
 from typing import Any
 from langchain_openai import ChatOpenAI
@@ -16,10 +15,12 @@ PROBLEM_DIR = ROOT / "problems"
 OUTPUT_DIR = ROOT / "artifacts"
 SOLUTIONS_DIR = OUTPUT_DIR / "solutions"
 LOG_PATH = OUTPUT_DIR / "selfrepair_log.json"
-MODEL = os.getenv("QWEN_MODEL", "qwen3:4b")
+MODEL = os.getenv("QWEN_MODEL", "qwen3:1.7b")
 MAX_ROUNDS = max(1, int(os.getenv("MAX_REPAIR_ROUNDS", "3")))
 EXEC_TIMEOUT = max(1, int(os.getenv("EXEC_TIMEOUT_SECONDS", "5")))
 MAX_OUTPUT_CHARS = 6000
+ISSUE_REPORTING = os.getenv("REPORT_GITHUB_ISSUES", "1") == "1"
+
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("self-repair")
 
@@ -57,6 +58,69 @@ def validate_syntax(code: str) -> str | None:
     except SyntaxError as exc:
         return f"SyntaxError at line {exc.lineno}, column {exc.offset}: {exc.msg}"
 
+def cleanup_python_caches() -> None:
+    """Remove Python bytecode caches created during each problem evaluation."""
+    for base in (ROOT / "artifacts", ROOT / "problems", ROOT / "tests", ROOT / "agent", ROOT / "scripts"):
+        if not base.exists():
+            continue
+        for cache_dir in base.rglob("__pycache__"):
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        for pyc in base.rglob("*.pyc"):
+            try:
+                pyc.unlink()
+            except OSError:
+                pass
+
+def report_invocation_issue(problem: str, error: str) -> None:
+    """Create/update an issue immediately for model invocation failures."""
+    if not ISSUE_REPORTING or not os.getenv("GH_TOKEN") or not os.getenv("GITHUB_REPOSITORY"):
+        return
+    repo = os.environ["GITHUB_REPOSITORY"]
+    model_slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", MODEL).strip("-")
+    title = f"SLM invocation failure: {model_slug} / {problem}"
+    run_url = os.getenv("GITHUB_RUN_URL") or (
+        f"{os.getenv('GITHUB_SERVER_URL', 'https://github.com')}/"
+        f"{repo}/actions/runs/{os.getenv('GITHUB_RUN_ID', 'unknown')}"
+    )
+    body = (
+        "## Model invocation failure detected during benchmark\n\n"
+        f"- **Model:** `{MODEL}`\n- **Problem:** `{problem}`\n"
+        f"- **Run:** {run_url}\n- **Failure:** `{error[:500]}`\n\n"
+        "The invocation failed before independent tests could assess generated code. "
+        "This is tracked separately from ordinary wrong-answer outcomes.\n\n"
+        "### Suggested checks\n"
+        "1. Inspect Ollama server logs and runner memory pressure.\n"
+        "2. Check the configured model-call timeout and output-token budget.\n"
+        "3. Confirm the model endpoint remains responsive.\n"
+        "4. Re-run after correcting the latency or infrastructure issue.\n"
+    )
+    env = os.environ.copy()
+    try:
+        for label, color, desc in [
+            ("automation", "5319e7", "Created by workflow automation"),
+            ("bug", "d73a4a", "Bug or failure"),
+        ]:
+            subprocess.run(["gh", "label", "create", label, "--repo", repo, "--color", color,
+                            "--description", desc], env=env, capture_output=True, text=True,
+                           timeout=15, check=False)
+        listed = subprocess.run(
+            ["gh", "issue", "list", "--repo", repo, "--state", "open", "--json", "number,title"],
+            env=env, capture_output=True, text=True, timeout=20, check=True)
+        issues = json.loads(listed.stdout or "[]")
+        existing = next((str(item["number"]) for item in issues if item.get("title") == title), None)
+        if existing:
+            subprocess.run(["gh", "issue", "comment", existing, "--repo", repo, "--body", body],
+                           env=env, capture_output=True, text=True, timeout=20, check=True)
+            log.warning("Updated GitHub issue #%s for invocation failure (%s)", existing, problem)
+        else:
+            created = subprocess.run(
+                ["gh", "issue", "create", "--repo", repo, "--title", title, "--body", body,
+                 "--label", "automation,bug"], env=env, capture_output=True, text=True,
+                timeout=20, check=True)
+            log.error("Created GitHub issue for model invocation failure: %s", created.stdout.strip())
+    except Exception as exc:
+        log.warning("Could not report invocation failure to GitHub Issues: %s", exc)
+
 def run_tests(code_path: Path, spec_path: Path) -> dict:
     """Run isolated function-level tests in a subprocess; never trust model self-report."""
     runner = ROOT / "tests" / "run_cases.py"
@@ -64,7 +128,7 @@ def run_tests(code_path: Path, spec_path: Path) -> dict:
         proc = subprocess.run(
             [sys.executable, "-I", str(runner), str(code_path), str(spec_path)],
             cwd=ROOT, capture_output=True, text=True, timeout=EXEC_TIMEOUT,
-            env={"PATH": os.environ.get("PATH", ""), "PYTHONIOENCODING": "utf-8"},
+            env={"PATH": os.environ.get("PATH", ""), "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"},
         )
         stdout, stderr = proc.stdout[-MAX_OUTPUT_CHARS:], proc.stderr[-MAX_OUTPUT_CHARS:]
         try:
@@ -107,8 +171,15 @@ def solve(spec_path: Path) -> dict:
         try:
             code, llm_seconds, token_usage = invoke_model(spec, code, last_test, round_no)
         except Exception as exc:
-            history.append({"round": round_no, "model_error": f"{type(exc).__name__}: {exc}", "passed": False})
+            error_text = f"{type(exc).__name__}: {exc}"
+            history.append({"round": round_no, "model_error": error_text,
+                            "failure_class": "model_invocation_error", "passed": False})
+            last_test = {"passed": False, "passed_tests": 0, "total_tests": len(spec["tests"]),
+                         "failures": [error_text], "error": error_text,
+                         "failure_class": "model_invocation_error",
+                         "timed_out": "timeout" in error_text.lower()}
             log.exception("Model invocation failed for %s", slug)
+            report_invocation_issue(spec_path.name, error_text)
             break
         syntax_error = validate_syntax(code)
         solution_path.write_text(code)
@@ -131,7 +202,7 @@ def solve(spec_path: Path) -> dict:
     converged = bool(last_test.get("passed"))
     final_categories = last_test.get("category_results", {})
     failed_categories = [name for name, stats in final_categories.items() if stats.get("passed", 0) < stats.get("total", 0)]
-    return {"problem": spec_path.name, "function": spec["name"], "difficulty": spec["difficulty"],
+    result = {"problem": spec_path.name, "function": spec["name"], "difficulty": spec["difficulty"],
             "bug_family": spec.get("bug_family", "unspecified"), "bug_patterns": spec.get("bug_patterns", []),
             "difficulty_rubric": spec.get("difficulty_rubric", ""), "model": MODEL,
             "failure_class": ("none" if converged else ("syntax_error" if last_test.get("syntax_error") else last_test.get("failure_class", "not_converged"))),
@@ -142,6 +213,8 @@ def solve(spec_path: Path) -> dict:
             "problem_seconds": round(time.perf_counter() - started_problem, 4),
             "final_code_path": str(solution_path.relative_to(ROOT)), "final_code": code,
             "last_test_report": last_test, "history": history}
+    cleanup_python_caches()
+    return result
 
 def main() -> int:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -157,8 +230,9 @@ def main() -> int:
               "pass_rate": round(sum(r["converged"] for r in results) / len(results), 4), "results": results}
     LOG_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     log.info("Results: %d/%d solved. Report: %s", report["solved_count"], len(results), LOG_PATH)
-    # Keep CI green to upload evidence even if the model fails; the report makes failures explicit.
-    return 0
+    # Wrong answers are benchmark outcomes; model invocation errors fail the job.
+    invocation_errors = [r for r in results if r.get("failure_class") == "model_invocation_error"]
+    return 1 if invocation_errors else 0
 
 if __name__ == "__main__":
     raise SystemExit(main())

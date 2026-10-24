@@ -7,14 +7,14 @@ A test-driven code-generation and repair benchmark using local Ollama models and
 - Five Python problems: addition, normalized palindrome, two-sum, maximum subarray, and trapping rain water.
 - Independent executable test cases, including boundary cases. A zero process exit is **not** considered a pass; every test must pass.
 - Up to three generate/test/repair rounds, syntax pre-checks, per-call timing, test results, code snapshots, and JSON audit logs.
-- Matrix comparison of `qwen3:0.6b`, `qwen3:1.7b`, and `qwen3:4b`; each model runs on its own hosted runner. The aggregation job creates JSON and Markdown summaries.
+- Default matrix compares `qwen3:0.6b`, `qwen3:1.7b`, and the coding-specialist `qwen2.5-coder:1.5b`; each model runs on its own hosted runner. Qwen3 4B is paused and only included when explicitly enabled in a manual workflow run.
 
 ## Run locally
 
 Install Ollama and Python 3.11+, start `ollama serve`, and pull a model:
 
 ```bash
-ollama pull qwen3:4b
+ollama pull qwen3:1.7b
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -39,12 +39,12 @@ The benchmark improves evaluation quality, not the underlying model weights. Det
 
 - Artifact names use model slugs (`qwen3-0.6b`, `qwen3-1.7b`, `qwen3-4b`); Ollama tags contain `:` which GitHub artifact names reject.
 - Aggregation validates report files and exits non-zero when no valid records are present, while still writing diagnostic aggregate files.
-- Model calls use a bounded 240-second timeout, no automatic retry, and a 2048-token output cap by default to prevent a slow CPU inference call from consuming repeated five-minute windows. Tune `LLM_TIMEOUT_SECONDS` and `LLM_MAX_TOKENS` in the workflow after measuring runner performance.
+- Default model calls use a bounded 150-second timeout, no automatic retry, and a 1024-token output cap. Qwen3 4B is explicitly opt-in and uses a 240-second timeout. Tune these only after reviewing measured runtime and resource diagnostics.
 - The model benchmark is CPU-based on standard GitHub-hosted Ubuntu runners; these runners do not provide a general-purpose GPU. Treat model timing as CPU-runner timing, not GPU performance.
 
 ## Optional repository coding agent (PR-only)
 
-The separate **Qwen Repository Coding Agent (PR-only)** workflow can be run manually from GitHub Actions. Supply a specific task and select `qwen3:0.6b`, `qwen3:1.7b`, or `qwen3:4b`. It reads a bounded set of tracked repository files, asks the local Ollama model for a unified diff, validates the patch paths, applies it in a job without write credentials, and runs the existing unit tests and syntax checks. If checks pass, a separate job opens a pull request. It never pushes directly to the default branch, and the model-generation job never receives a write token.
+The separate **Qwen Repository Coding Agent (PR-only)** workflow can be run manually from GitHub Actions. Supply a specific task and select `qwen3:0.6b`, `qwen3:1.7b`, `qwen2.5-coder:1.5b`, or (only when needed) `qwen3:4b`. The default is `qwen3:1.7b`. It reads a bounded set of tracked repository files, asks the local Ollama model for a unified diff, validates the patch paths, applies it in a job without write credentials, and runs the existing unit tests and syntax checks. If checks pass, a separate job opens a pull request. It never pushes directly to the default branch, and the model-generation job never receives a write token.
 
 ### Token configuration
 
@@ -78,3 +78,14 @@ Suggested interpretation: Easy = basic correctness; Easy-medium = normalization 
 - The agent never directly closes issues based solely on its own claim. Human review and merge remain the closure gate. If you require automatic merging, configure GitHub branch protection and a separate trusted policy; do not give model-generated code unrestricted repository-write access.
 
 The issue reporters deduplicate by workflow-specific title and append a comment to an existing open issue. Ensure Actions are allowed to create issues using the repository's `GITHUB_TOKEN` (Settings → Actions → General → Workflow permissions). No personal access token is needed for these issue operations.
+
+
+## Resource efficiency and slow-model handling
+
+- Qwen3 4B is paused by default because CPU-hosted runners repeatedly hit the 240-second model-call read timeout. It can only be enabled deliberately through `workflow_dispatch` (`run_qwen3_4b=true`).
+- Default comparison includes Qwen3 0.6B, Qwen3 1.7B, and the coding-specialist `qwen2.5-coder:1.5b`. This keeps the experiment open-source and tests a coding-tuned model before spending runner time on 4B.
+- Model-file caching through `actions/cache` is disabled. It saved download time but did not reduce inference RAM usage and could consume GitHub cache quota. Each job pulls its model, uploads results, then unloads the model and removes local Ollama model files.
+- Ollama is configured for one parallel request, one loaded model, a short idle keep-alive, Flash Attention, and a 2048-token smoke-test context. The generation output budget is 1024 tokens by default to reduce CPU time.
+- Python bytecode generation is disabled in test subprocesses, and `__pycache__`/`.pyc` files are removed after each problem and before artifacts are uploaded. The previous artifact bundles contained `solutions/__pycache__` files; these are disposable bytecode, not evidence of a Python memory leak.
+- Model invocation exceptions are written to the JSON audit log, make the benchmark job fail, and trigger a best-effort deduplicated GitHub Issue immediately. The agent receives `GH_TOKEN` only for issue reporting; generated solution subprocesses receive a minimal environment without the token. Workflow-level failures are also summarized in a separate issue.
+- The logs provided so far show `httpx`/OpenAI-compatible client `ReadTimeout` after roughly 240 seconds. That is evidence of inference latency or an unresponsive endpoint, not proof of a memory leak. The workflow now captures Ollama logs and runner memory/disk diagnostics to help distinguish slow generation, OOM/resource pressure, and endpoint failure.

@@ -14,11 +14,12 @@ on:
       model:
         description: "Ollama model tag"
         required: true
-        default: "qwen3:4b"
+        default: "qwen3:1.7b"
         type: choice
         options:
           - "qwen3:0.6b"
           - "qwen3:1.7b"
+          - "qwen2.5-coder:1.5b"
           - "qwen3:4b"
 
 # No repository write permissions in the model-generation or test job.
@@ -35,15 +36,20 @@ jobs:
       TARGET_ISSUE_NUMBER: ${{ inputs.issue_number }}
       QWEN_MODEL: ${{ inputs.model }}
       OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
-      LLM_TIMEOUT_SECONDS: "300"
-      LLM_MAX_TOKENS: "4096"
+      LLM_TIMEOUT_SECONDS: ${{ inputs.model == 'qwen3:4b' && '240' || '150' }}
+      LLM_MAX_TOKENS: "2048"
       PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OLLAMA_KEEP_ALIVE: "60s"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_CONTEXT_LENGTH: "2048"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
       - name: Install Ollama prerequisites
@@ -51,6 +57,12 @@ jobs:
       - name: Setup Ollama
         uses: ai-action/setup-ollama@v2
       - name: Start Ollama and pull model
+        env:
+          OLLAMA_KEEP_ALIVE: "60s"
+          OLLAMA_NUM_PARALLEL: "1"
+          OLLAMA_MAX_LOADED_MODELS: "1"
+          OLLAMA_FLASH_ATTENTION: "1"
+          OLLAMA_CONTEXT_LENGTH: "2048"
         run: |
           (ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &)
           for i in $(seq 1 60); do
@@ -60,8 +72,31 @@ jobs:
           curl --silent --show-error --fail http://127.0.0.1:11434/api/tags >/dev/null || { cat "$RUNNER_TEMP/ollama.log"; exit 1; }
           ollama pull "$QWEN_MODEL"
           ollama list
+      - name: Smoke-test local model endpoint
+        run: |
+          curl --silent --show-error --fail --max-time 90 http://127.0.0.1:11434/api/chat \\
+            -H 'Content-Type: application/json' \\
+            -d "{\\"model\\":\\"$QWEN_MODEL\\",\\"stream\\":false,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"Reply with exactly OK\\"}],\\"options\\":{\\"num_ctx\\":2048,\\"num_predict\\":64}}" \\
+            | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("message",{}).get("content"), d; print("Ollama model response received")'
       - name: Generate proposed repository patch
-        run: python agent/repo_coding_agent.py
+        shell: bash
+        run: |
+          set +e
+          mkdir -p artifacts/repo-agent
+          (while true; do
+            date -Is
+            free -h
+            ps -eo pid,rss,comm,args --sort=-rss | head -n 12
+            echo "---"
+            sleep 15
+          done) > "$RUNNER_TEMP/resource-samples.log" 2>&1 &
+          sampler_pid=$!
+          python agent/repo_coding_agent.py
+          status=$?
+          kill "$sampler_pid" >/dev/null 2>&1 || true
+          wait "$sampler_pid" 2>/dev/null || true
+          cp "$RUNNER_TEMP/resource-samples.log" artifacts/repo-agent/resource-samples.log 2>/dev/null || true
+          exit "$status"
       - name: Validate and apply patch in isolated job
         id: patch
         shell: bash
@@ -92,6 +127,21 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_*.py' -v
           python -m compileall -q agent scripts tests problems
+      - name: Capture Ollama diagnostics and clean bytecode
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts/repo-agent
+          if [ -f "$RUNNER_TEMP/ollama.log" ]; then
+            tail -n 400 "$RUNNER_TEMP/ollama.log" > artifacts/repo-agent/ollama.log
+          fi
+          {
+            echo "### Runner memory"; free -h || true
+            echo "### Filesystem"; df -h "$HOME" || true
+            echo "### Ollama models"; ollama list || true
+          } > artifacts/repo-agent/runner-resources.txt
+          find . -type d -name __pycache__ -prune -exec rm -rf {} + || true
+          find . -type f -name '*.pyc' -delete || true
       - name: Upload patch and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -100,6 +150,14 @@ jobs:
           path: artifacts/repo-agent/
           if-no-files-found: error
           retention-days: 14
+      - name: Unload model and remove generated caches
+        if: always()
+        shell: bash
+        run: |
+          ollama stop "$QWEN_MODEL" >/dev/null 2>&1 || true
+          rm -rf "$HOME/.ollama/models" "$HOME/.ollama/tmp" "$HOME/.cache/pip" || true
+          find . -type d -name __pycache__ -prune -exec rm -rf {} + || true
+          find . -type f -name '*.pyc' -delete || true
 
   open-pull-request:
     name: Open pull request for passing patch
