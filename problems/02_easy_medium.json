@@ -1,0 +1,43 @@
+{
+  "name": "is_palindrome",
+  "difficulty": "easy-medium",
+  "statement": "Implement is_palindrome(s). Return True when s is a palindrome, ignoring case and all non-alphanumeric characters; otherwise False.",
+  "tests": [
+    {
+      "args": [
+        "A man, a plan, a canal: Panama"
+      ],
+      "expected": true
+    },
+    {
+      "args": [
+        "race a car"
+      ],
+      "expected": false
+    },
+    {
+      "args": [
+        ""
+      ],
+      "expected": true
+    },
+    {
+      "args": [
+        ".,!?"
+      ],
+      "expected": true
+    },
+    {
+      "args": [
+        "No lemon, no melon"
+      ],
+      "expected": true
+    },
+    {
+      "args": [
+        "ab"
+      ],
+      "expected": false
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "name": "trap_rain_water",
+  "difficulty": "hard",
+  "statement": "Implement trap_rain_water(height), returning the total trapped rainwater for non-negative bar heights. Empty and short lists return zero. Aim for O(n) time and O(1) extra space if practical.",
+  "tests": [
+    {
+      "args": [
+        [
+          0,
+          1,
+          0,
+          2,
+          1,
+          0,
+          1,
+          3,
+          2,
+          1,
+          2,
+          1
+        ]
+      ],
+      "expected": 6
+    },
+    {
+      "args": [
+        [
+          4,
+          2,
+          0,
+          3,
+          2,
+          5
+        ]
+      ],
+      "expected": 9
+    },
+    {
+      "args": [
+        []
+      ],
+      "expected": 0
+    },
+    {
+      "args": [
+        [
+          1
+        ]
+      ],
+      "expected": 0
+    },
+    {
+      "args": [
+        [
+          3,
+          3,
+          3
+        ]
+      ],
+      "expected": 0
+    },
+    {
+      "args": [
+        [
+          5,
+          4,
+          1,
+          2
+        ]
+      ],
+      "expected": 1
+    },
+    {
+      "args": [
+        [
+          2,
+          0,
+          2
+        ]
+      ],
+      "expected": 2
+    },
+    {
+      "args": [
+        [
+          0,
+          2,
+          0,
+          2
+        ]
+      ],
+      "expected": 2
+    }
+  ]
+}

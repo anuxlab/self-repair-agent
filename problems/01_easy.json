@@ -1,0 +1,42 @@
+{
+  "name": "add",
+  "difficulty": "easy",
+  "statement": "Implement add(a, b), returning the sum of two numbers. Preserve normal Python numeric behavior.",
+  "tests": [
+    {
+      "args": [
+        2,
+        3
+      ],
+      "expected": 5
+    },
+    {
+      "args": [
+        -1,
+        1
+      ],
+      "expected": 0
+    },
+    {
+      "args": [
+        0,
+        0
+      ],
+      "expected": 0
+    },
+    {
+      "args": [
+        -7,
+        -8
+      ],
+      "expected": -15
+    },
+    {
+      "args": [
+        1.5,
+        2.25
+      ],
+      "expected": 3.75
+    }
+  ]
+}

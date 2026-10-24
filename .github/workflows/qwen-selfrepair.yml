@@ -1,58 +1,111 @@
-# .github/workflows/qwen-selfrepair.yml
-name: Qwen Self-Repair Agent (Local Ollama)
+name: Open-Source SLM Self-Repair Benchmark
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
+    paths:
+      - "agent/**"
+      - "problems/**"
+      - "tests/**"
+      - ".github/workflows/qwen-selfrepair.yml"
+      - "requirements.txt"
+      - "scripts/**"
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
-  self-repair:
+  benchmark:
+    name: Benchmark ${{ matrix.model }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ["qwen3:0.6b", "qwen3:1.7b", "qwen3:4b"]
+    timeout-minutes: 90
+    env:
+      QWEN_MODEL: ${{ matrix.model }}
+      OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
+      MAX_REPAIR_ROUNDS: "3"
+      EXEC_TIMEOUT_SECONDS: "5"
+      PYTHONUNBUFFERED: "1"
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
+          cache: pip
       - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install "langchain>=1.0" langchain-openai langchain-community
-
-      - name: Start Ollama and pull Qwen3 model
-        uses: pydantic/ollama-action@v3
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+      - name: Install Ollama prerequisites
+        run: sudo apt-get update && sudo apt-get install -y zstd
+      - name: Setup Ollama
+        uses: ai-action/setup-ollama@v2
+      - name: Cache model files
+        uses: actions/cache@v4
         with:
-          model: qwen3:4b          # change to qwen3:8b if you want a larger model
-
-      - name: Run Qwen self-repair agent (local)
-        env:
-          OLLAMA_BASE_URL: "http://localhost:11434/v1"
-          OLLAMA_API_KEY: "ollama"   # placeholder; Ollama does not validate it
-          QWEN_MODEL: "qwen3:4b"
-          PYTHONUNBUFFERED: "1"
+          path: ~/.ollama/models
+          key: ollama-${{ runner.os }}-${{ matrix.model }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ollama-${{ runner.os }}-${{ matrix.model }}-
+      - name: Start Ollama and pull model
         run: |
-          python agent/self_repair_agent.py
-
-      - name: Upload self-repair log
+          (ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &)
+          for i in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+            sleep 2
+          done
+          curl --silent --fail http://127.0.0.1:11434/api/tags >/dev/null || { cat "$RUNNER_TEMP/ollama.log"; exit 1; }
+          ollama pull "$QWEN_MODEL"
+          ollama list
+      - name: Smoke-test local model endpoint
+        run: |
+          curl --silent --show-error --fail http://127.0.0.1:11434/api/chat \
+            -H 'Content-Type: application/json' \
+            -d "{\"model\":\"$QWEN_MODEL\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly OK\"}]}" \
+            | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("message",{}).get("content"), d; print("Ollama model response received")'
+      - name: Unit-test benchmark harness
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Run self-repair benchmark
+        run: python agent/self_repair_agent.py
+      - name: Upload model-specific results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: selfrepair-log
-          path: selfrepair_log.json
-          retention-days: 14
+          name: selfrepair-${{ strategy.job-index }}-${{ matrix.model }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
 
-      - name: Upload final solutions
+  aggregate:
+    name: Aggregate model results
+    if: always()
+    needs: benchmark
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download all model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: selfrepair-*
+          path: downloaded-results
+          merge-multiple: false
+      - name: Aggregate JSON and Markdown report
+        run: python scripts/aggregate_results.py downloaded-results
+      - name: Upload aggregate report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-solutions
-          path: solution.py
-          retention-days: 14
+          name: selfrepair-aggregate-report
+          path: aggregate-report/
+          if-no-files-found: warn
+          retention-days: 90
